@@ -3,6 +3,7 @@
 """Assembles nv2a vertex shader machine code."""
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -231,13 +232,44 @@ class _App:
             except KeyboardInterrupt:
                 return
 
+
+def _emit_input_template():
+    ctx = simulator.Context()
+    values = ctx.to_dict(True)
+    json.dump(values, sys.stdout, indent=2, sort_keys=True)
+
+
 def _main(args):
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level)
 
-    if args.input and not os.path.isfile(args.input):
-        print(f"Failed to open input file '{args.input}'", file=sys.stderr)
-        return 1
+    if args.emit_inputs:
+        _emit_input_template()
+        return 0
+
+    inputs = {}
+    if args.inputs:
+        if not os.path.isfile(args.inputs):
+            print(f"Failed to open input definition file '{args.inputs}'", file=sys.stderr)
+            return 1
+        with open(args.inputs, encoding="ascii") as infile:
+            inputs = json.load(infile)
+
+    shader = simulator.Shader()
+    shader.set_initial_state(inputs)
+
+    if args.source:
+        if not os.path.isfile(args.source):
+            print(f"Failed to open source file '{args.source}'", file=sys.stderr)
+            return 1
+
+        with open(args.source, encoding="utf-8") as infile:
+            source = infile.read()
+        shader.set_source(source)
+
+    if args.json:
+        shader.explain()
+        return 0
 
     app = _App()
     app.run()
@@ -252,10 +284,30 @@ def entrypoint():
         parser = argparse.ArgumentParser()
 
         parser.add_argument(
-            "input",
+            "source",
             nargs="?",
             metavar="source_path",
             help="Source file to assemble.",
+        )
+
+        parser.add_argument(
+            "-i",
+            "--inputs",
+            metavar="json_inputs",
+            help="Use the JSON content of the given file as the shader input state."
+        )
+
+        parser.add_argument(
+            "--emit-inputs",
+            action="store_true",
+            help="Emit a template JSON file that may be used to modify the inputs to the shader."
+        )
+
+        parser.add_argument(
+            "-j",
+            "--json",
+            action="store_true",
+            help="Emit a JSON document capturing the context at each instruction in the source."
         )
 
         parser.add_argument(
