@@ -269,7 +269,8 @@ def _main(args):
 
     if args.json:
         output = shader.explain()
-        json.dump(output, sys.stdout, indent=2, sort_keys=True)
+        # DONOTSUBMIT
+        # json.dump(output, sys.stdout, indent=2, sort_keys=True)
         return 0
 
     app = _App()
