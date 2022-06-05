@@ -268,7 +268,8 @@ def _main(args):
         shader.set_source(source)
 
     if args.json:
-        shader.explain()
+        output = shader.explain()
+        json.dump(output, sys.stdout, indent=2, sort_keys=True)
         return 0
 
     app = _App()

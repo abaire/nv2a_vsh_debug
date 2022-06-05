@@ -1,6 +1,7 @@
 """Provides functions to simulate the behavior of an original xbox nv2a vertex shader."""
 
 import copy
+from typing import List, Tuple
 
 import nv2avsh
 
@@ -40,6 +41,9 @@ class Register:
         self.y = y
         self.z = z
         self.w = w
+
+    def to_json(self) -> List:
+        return [self.name, self.x, self.y, self.z, self.w]
 
 
 class Context:
@@ -103,14 +107,14 @@ class Context:
     def to_dict(self, inputs_only: bool = False):
         """Returns a dictionary representation of this context."""
         ret = {
-            "input": self._input_registers,
-            "constant": self._constant_registers,
+            "input": [x.to_json() for x in self._input_registers],
+            "constant": [x.to_json() for x in self._constant_registers],
         }
 
         if not inputs_only:
-            ret["address"] = self._address_register
-            ret["temp"] = self._temp_registers
-            ret["output"] = self._output_registers
+            ret["address"] = self._address_register.to_json()
+            ret["temp"] = [x.to_json() for x in self._temp_registers]
+            ret["output"] = [x.to_json() for x in self._output_registers]
 
         return ret
 
@@ -129,11 +133,120 @@ class Context:
     def duplicate(self):
         return copy.deepcopy(self)
 
+def _mac_mov(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_mul(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_add(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_mad(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_dp3(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_dph(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_dp4(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_dst(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_min(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_max(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_slt(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_sge(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _mac_arl(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+_MAC_HANDLERS = {
+    nv2avsh.vsh_instruction.MAC.MAC_MOV: _mac_mov,
+    nv2avsh.vsh_instruction.MAC.MAC_MUL: _mac_mul,
+    nv2avsh.vsh_instruction.MAC.MAC_ADD: _mac_add,
+    nv2avsh.vsh_instruction.MAC.MAC_MAD: _mac_mad,
+    nv2avsh.vsh_instruction.MAC.MAC_DP3: _mac_dp3,
+    nv2avsh.vsh_instruction.MAC.MAC_DPH: _mac_dph,
+    nv2avsh.vsh_instruction.MAC.MAC_DP4: _mac_dp4,
+    nv2avsh.vsh_instruction.MAC.MAC_DST: _mac_dst,
+    nv2avsh.vsh_instruction.MAC.MAC_MIN: _mac_min,
+    nv2avsh.vsh_instruction.MAC.MAC_MAX: _mac_max,
+    nv2avsh.vsh_instruction.MAC.MAC_SLT: _mac_slt,
+    nv2avsh.vsh_instruction.MAC.MAC_SGE: _mac_sge,
+    nv2avsh.vsh_instruction.MAC.MAC_ARL: _mac_arl,
+}
+
+
+def _ilu_mov(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _ilu_rcp(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _ilu_rcc(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _ilu_rsq(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _ilu_exp(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _ilu_log(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+def _ilu_lit(instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context, output: Context):
+    pass
+
+
+_ILU_HANDLERS = {
+    nv2avsh.vsh_instruction.ILU.ILU_MOV: _ilu_mov,
+    nv2avsh.vsh_instruction.ILU.ILU_RCP: _ilu_rcp,
+    nv2avsh.vsh_instruction.ILU.ILU_RCC: _ilu_rcc,
+    nv2avsh.vsh_instruction.ILU.ILU_RSQ: _ilu_rsq,
+    nv2avsh.vsh_instruction.ILU.ILU_EXP: _ilu_exp,
+    nv2avsh.vsh_instruction.ILU.ILU_LOG: _ilu_log,
+    nv2avsh.vsh_instruction.ILU.ILU_LIT: _ilu_lit,
+}
+
+
 class Shader:
+    """Models an nv2a vertex shader."""
     def __init__(self):
         self._reformatted_source = []
         self._instructions = []
-        self._contexts = []
+        self._input_context = Context()
 
     def set_source(self, source_code: str):
         """Sets the source code for this shader."""
@@ -145,11 +258,44 @@ class Shader:
         """Sets the initial register state for this shader."""
         ctx = Context()
         ctx.from_dict(state)
-        if not self._contexts:
-            self._contexts = [ctx]
-            return
-        self._contexts[0] = ctx
+        self._input_context = ctx
+
+    def _apply(self, instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context):
+        output = input.duplicate()
+
+        mac = instruction.mac
+        if mac:
+            _MAC_HANDLERS[mac](instruction, input, output)
+        ilu = instruction.ilu
+        if ilu:
+            _ILU_HANDLERS[ilu](instruction, input, output)
+
+        return output
+
+    def _simulate(self) -> Tuple[List[Tuple[str, Context]], Context]:
+        active_state = self._input_context
+        states = []
+        for line, instruction in zip(self._reformatted_source, self._instructions):
+            active_state = self._apply(instruction, active_state)
+            states.append((line, active_state))
+
+        return states, active_state
 
     def explain(self) -> dict:
         """Returns a dictionary providing details about the execution state of this shader."""
-        return {}
+        ret = {}
+
+        ret["input"] = self._input_context.to_dict()
+
+        steps, output = self._simulate()
+        step_dicts = []
+        for line, output in steps:
+            entry = {
+                "source": line,
+                "state": output.to_dict()
+            }
+            step_dicts.append(entry)
+        ret["steps"] = step_dicts
+        ret["output"] = output.to_dict()
+
+        return ret
