@@ -221,21 +221,24 @@ def _arl(inst: dict, input: Context, output: Context):
 
 
 def _mov(inst: dict, input: Context, output: Context):
-    output.set(inst["output"], input.get(inst["inputs"][0]))
+    for reg in inst["outputs"]:
+        output.set(reg, input.get(inst["inputs"][0]))
 
 
 def _mac_mul(inst: dict, input: Context, output: Context):
     a = input.get(inst["inputs"][0])
     b = input.get(inst["inputs"][1])
     result = [a_val * b_val for a_val, b_val in zip(a, b)]
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_add(inst: dict, input: Context, output: Context):
     a = input.get(inst["inputs"][0])
     b = input.get(inst["inputs"][1])
     result = [a_val + b_val for a_val, b_val in zip(a, b)]
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_mad(inst: dict, input: Context, output: Context):
@@ -244,7 +247,8 @@ def _mac_mad(inst: dict, input: Context, output: Context):
     result = [a_val * b_val for a_val, b_val in zip(a, b)]
     c = input.get(inst["inputs"][2])
     result = [a_val + b_val for a_val, b_val in zip(result, c)]
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_dp3(inst: dict, input: Context, output: Context):
@@ -254,7 +258,8 @@ def _mac_dp3(inst: dict, input: Context, output: Context):
 
     val = functools.reduce(lambda x, y: x + y, result)
     result = [val] * 4
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_dph(inst: dict, input: Context, output: Context):
@@ -265,7 +270,8 @@ def _mac_dph(inst: dict, input: Context, output: Context):
     val = functools.reduce(lambda x, y: x + y, result)
     val += b[4]
     result = [val] * 4
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_dp4(inst: dict, input: Context, output: Context):
@@ -275,42 +281,48 @@ def _mac_dp4(inst: dict, input: Context, output: Context):
 
     val = functools.reduce(lambda x, y: x + y, result)
     result = [val] * 4
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_dst(inst: dict, input: Context, output: Context):
     a = input.get(inst["inputs"][0])
     b = input.get(inst["inputs"][1])
     result = (1.0, a[1] * b[1], a[2], b[3])
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_min(inst: dict, input: Context, output: Context):
     a = input.get(inst["inputs"][0])
     b = input.get(inst["inputs"][1])
     result = [a_val if a_val < b_val else b_val for a_val, b_val in zip(a[:4], b[:4])]
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_max(inst: dict, input: Context, output: Context):
     a = input.get(inst["inputs"][0])
     b = input.get(inst["inputs"][1])
     result = [a_val if a_val >= b_val else b_val for a_val, b_val in zip(a[:4], b[:4])]
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_slt(inst: dict, input: Context, output: Context):
     a = input.get(inst["inputs"][0])
     b = input.get(inst["inputs"][1])
     result = [1.0 if a_val < b_val else 0.0 for a_val, b_val in zip(a[:4], b[:4])]
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 def _mac_sge(inst: dict, input: Context, output: Context):
     a = input.get(inst["inputs"][0])
     b = input.get(inst["inputs"][1])
     result = [1.0 if a_val >= b_val else 0.0 for a_val, b_val in zip(a[:4], b[:4])]
-    output.set(inst["output"], tuple(result))
+    for reg in inst["outputs"]:
+        output.set(reg, tuple(result))
 
 
 _MAC_HANDLERS = {
@@ -343,7 +355,8 @@ def _ilu_rcp(inst: dict, input: Context, output: Context):
         return 1.0 / val
 
     result = [compute(val) for val in a[:4]]
-    output.set(inst["output"], (result[0], result[1], result[2], result[3]))
+    for reg in inst["outputs"]:
+        output.set(reg, (result[0], result[1], result[2], result[3]))
 
 
 def _ilu_rcc(inst: dict, input: Context, output: Context):
@@ -365,7 +378,8 @@ def _ilu_rcc(inst: dict, input: Context, output: Context):
         return 1.0 / input
 
     result = [compute(val) for val in a[:4]]
-    output.set(inst["output"], (result[0], result[1], result[2], result[3]))
+    for reg in inst["outputs"]:
+        output.set(reg, (result[0], result[1], result[2], result[3]))
 
 
 def _ilu_rsq(inst: dict, input: Context, output: Context):
@@ -381,7 +395,8 @@ def _ilu_rsq(inst: dict, input: Context, output: Context):
         return 1.0 / math.sqrt(input)
 
     result = [compute(abs(val)) for val in a[:4]]
-    output.set(inst["output"], (result[0], result[1], result[2], result[3]))
+    for reg in inst["outputs"]:
+        output.set(reg, (result[0], result[1], result[2], result[3]))
 
 
 def _ilu_exp(inst: dict, input: Context, output: Context):
@@ -393,7 +408,8 @@ def _ilu_exp(inst: dict, input: Context, output: Context):
     z = math.pow(2, a[0])
     w = 1.0
 
-    output.set(inst["output"], (x, y, z, w))
+    for reg in inst["outputs"]:
+        output.set(reg, (x, y, z, w))
 
 
 def _ilu_log(inst: dict, input: Context, output: Context):
@@ -411,7 +427,8 @@ def _ilu_log(inst: dict, input: Context, output: Context):
         z = math.log2(tmp)
         w = 1.0
 
-    output.set(inst["output"], (x, y, z, w))
+    for reg in inst["outputs"]:
+        output.set(reg, (x, y, z, w))
 
 
 def _clamp(val, min_val, max_val):
