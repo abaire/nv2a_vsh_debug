@@ -35,8 +35,10 @@ _OUTPUT_TO_INDEX = {
     "oT3": 10,
 }
 
+
 class Register:
     """Holds the state of a single nv2a register."""
+
     def __init__(self, name: str, x=0, y=0, z=0, w=0):
         self.name = name
         self.x = x
@@ -81,6 +83,7 @@ class Register:
 
 class Context:
     """Holds the current register context."""
+
     def __init__(self):
         self._temp_registers = []
         for i in range(12):
@@ -109,7 +112,11 @@ class Context:
 
     def from_dict(self, registers: dict):
         """Populates this context from the given dictionary of register states."""
-        for k, target in [("input", self._input_registers), ("constant", self._constant_registers), ("temp", self._temp_registers)]:
+        for k, target in [
+            ("input", self._input_registers),
+            ("constant", self._constant_registers),
+            ("temp", self._temp_registers),
+        ]:
             values = registers.get(k)
             if not values:
                 continue
@@ -175,7 +182,9 @@ class Context:
                 return reg
         raise Exception(f"Unknown register {name}")
 
-    def _get_reg_and_mask(self, masked_reg: str, extend: bool = False) -> Tuple[Register, str]:
+    def _get_reg_and_mask(
+        self, masked_reg: str, extend: bool = False
+    ) -> Tuple[Register, str]:
         vals = masked_reg.split(".")
         reg = self._reg_by_name(vals[0])
         if len(vals) == 1:
@@ -243,7 +252,7 @@ def _mac_dp3(inst: dict, input: Context, output: Context):
     b = input.get(inst["inputs"][1])
     result = [a_val * b_val for a_val, b_val in zip(a[:3], b[:3])]
 
-    val = functools.reduce(lambda x, y: x+y, result)
+    val = functools.reduce(lambda x, y: x + y, result)
     result = [val] * 4
     output.set(inst["output"], tuple(result))
 
@@ -253,7 +262,7 @@ def _mac_dph(inst: dict, input: Context, output: Context):
     b = input.get(inst["inputs"][1])
     result = [a_val * b_val for a_val, b_val in zip(a[:3], b[:3])]
 
-    val = functools.reduce(lambda x, y: x+y, result)
+    val = functools.reduce(lambda x, y: x + y, result)
     val += b[4]
     result = [val] * 4
     output.set(inst["output"], tuple(result))
@@ -264,7 +273,7 @@ def _mac_dp4(inst: dict, input: Context, output: Context):
     b = input.get(inst["inputs"][1])
     result = [a_val * b_val for a_val, b_val in zip(a[:4], b[:4])]
 
-    val = functools.reduce(lambda x, y: x+y, result)
+    val = functools.reduce(lambda x, y: x + y, result)
     result = [val] * 4
     output.set(inst["output"], tuple(result))
 
@@ -341,14 +350,14 @@ def _ilu_rcc(inst: dict, input: Context, output: Context):
     a = input.get(inst["inputs"][0])
 
     def compute(input):
-        if input < -1.84467e+19:
-            input = -1.84467e+19
+        if input < -1.84467e19:
+            input = -1.84467e19
         elif input > -5.42101e-20 and input < 0:
             input = -5.42101e-020
         elif input >= 0 and input < 5.42101e-20:
             input = 5.42101e-20
-        elif input > 1.84467e+19:
-            input = 1.84467e+19
+        elif input > 1.84467e19:
+            input = 1.84467e19
 
         if input == 1.0:
             return 1.0
@@ -392,9 +401,9 @@ def _ilu_log(inst: dict, input: Context, output: Context):
 
     tmp = math.floor(a[0])
     if tmp == 0.0:
-        x = - math.inf
+        x = -math.inf
         y = 1.0
-        z = - math.inf
+        z = -math.inf
         w = 1.0
     else:
         x = math.floor(math.log2(tmp))
@@ -440,6 +449,7 @@ _ILU_HANDLERS = {
 
 class Shader:
     """Models an nv2a vertex shader."""
+
     def __init__(self):
         self._reformatted_source = []
         self._instructions = []
@@ -448,7 +458,9 @@ class Shader:
     def set_source(self, source_code: str):
         """Sets the source code for this shader."""
         machine_code = nv2avsh.assemble.assemble(source_code)
-        self._instructions = nv2avsh.disassemble.disassemble_to_instructions(machine_code)
+        self._instructions = nv2avsh.disassemble.disassemble_to_instructions(
+            machine_code
+        )
         self._reformatted_source = nv2avsh.disassemble.disassemble(machine_code, False)
 
     def set_initial_state(self, state: dict):
@@ -457,7 +469,13 @@ class Shader:
         ctx.from_dict(state)
         self._input_context = ctx
 
-    def _apply(self, instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context):
+    def merge_initial_state(self, state: dict):
+        """Merges values from the given dictionary into the current initial context."""
+        self._input_context.from_dict(state)
+
+    def _apply(
+        self, instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context
+    ):
         output = input.duplicate()
 
         commands = instruction.disassemble_to_dict()
@@ -474,9 +492,6 @@ class Shader:
         active_state = self._input_context
         states = []
         for line, instruction in zip(self._reformatted_source, self._instructions):
-            # DONOTSUBMIT
-            print()
-            print(line)
             active_state = self._apply(instruction, active_state)
             states.append((line, active_state))
 
@@ -491,10 +506,7 @@ class Shader:
         steps, output = self._simulate()
         step_dicts = []
         for line, output in steps:
-            entry = {
-                "source": line,
-                "state": output.to_dict()
-            }
+            entry = {"source": line, "state": output.to_dict()}
             step_dicts.append(entry)
         ret["steps"] = step_dicts
         ret["output"] = output.to_dict()

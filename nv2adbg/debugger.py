@@ -3,10 +3,13 @@
 """Assembles nv2a vertex shader machine code."""
 
 import argparse
+import csv
 import json
 import logging
 import os
+import re
 import sys
+from typing import Iterable
 
 import sshkeyboard
 
@@ -19,8 +22,10 @@ from rich.text import Text
 
 import simulator
 
-class _Editor:
 
+_CONSTANT_NAME_RE = re.compile(r"c\[(\d+)]")
+
+class _Editor:
     def __init__(self):
         self._scroll_start = 0
         self._cursor_pos = 0, 0
@@ -42,14 +47,20 @@ class _Editor:
 
         @console.group()
         def get_line_numbers():
-            for i in range(self._scroll_start + 1, self._scroll_start + 1 + visible_rows):
+            for i in range(
+                self._scroll_start + 1, self._scroll_start + 1 + visible_rows
+            ):
                 yield Text(f"{i:>3}")
+
         root[f"{target.name}#line"].update(get_line_numbers())
 
         @console.group()
         def get_source():
-            for i in range(self._scroll_start + 1, self._scroll_start + 1 + visible_rows):
+            for i in range(
+                self._scroll_start + 1, self._scroll_start + 1 + visible_rows
+            ):
                 yield Text("")
+
         root[f"{target.name}#content"].update(get_source())
 
 
@@ -120,6 +131,7 @@ class _App:
         self._active_layout = target
 
         for section in [self._MENU, self._SOURCE, self._CONTEXT]:
+
             def content():
                 if self._active_layout == section:
                     return Text("*")
@@ -136,7 +148,7 @@ class _App:
             Layout(name=self._MENU, size=1),
             Layout(name=self._SOURCE),
             Layout(name="#rule", size=1),
-            Layout(name=self._CONTEXT)
+            Layout(name=self._CONTEXT),
         )
 
         self._root["#rule"].update(Rule())
@@ -172,6 +184,7 @@ class _App:
             if self._active_layout == self._MENU:
                 return Text("[F]ile", style="bold magenta", justify="left")
             return Text("File", style="magenta", justify="left")
+
         self._root[f"{self._MENU}#content"].update(content())
 
     def _update_source(self):
@@ -190,10 +203,14 @@ class _App:
         max_width = region.width
 
         last_item = min(num_items, self._context_start + region.height)
+
         @console.group()
         def get_registers():
-            for reg in registers[self._context_start:last_item]:
-                yield Text.assemble((f"{reg.name:>5}", "cyan"), f" {reg.x:f}, {reg.y:f}, {reg.z:f}, {reg.w:f}")
+            for reg in registers[self._context_start : last_item]:
+                yield Text.assemble(
+                    (f"{reg.name:>5}", "cyan"),
+                    f" {reg.x:f}, {reg.y:f}, {reg.z:f}, {reg.w:f}",
+                )
 
         self._root[f"{self._CONTEXT}#content#left"].update(get_registers())
 
@@ -239,6 +256,50 @@ def _emit_input_template():
     json.dump(values, sys.stdout, indent=2, sort_keys=True)
 
 
+def _merge_inputs(row: dict, shader: simulator.Shader):
+    inputs = []
+    for index in range(0, 16):
+        key_base = f"v{index}"
+        keys = [f"{key_base}.{component}" for component in "xyzw"]
+
+        valid = False
+        register = [key_base]
+        for value in [row.get(key, None) for key in keys]:
+            if value is not None:
+                valid = True
+                value = float(value)
+            else:
+                value = 0.0
+            register.append(value)
+        if not valid:
+            continue
+
+        inputs.append(register)
+
+    shader.merge_initial_state({"inputs": inputs})
+
+
+def _merge_constants(rows: Iterable, shader: simulator.Shader):
+    registers = []
+    for row in rows:
+        name = row.get("Name", "")
+        match = _CONSTANT_NAME_RE.match(name)
+        if not match:
+            return
+        register = [match.group(1)]
+
+        values = row.get("Value")
+        if not values:
+            raise Exception(f"Invalid constant entry {row}")
+
+        for value in values.split(", "):
+            register.append(float(value))
+        registers.append(register)
+
+    if registers:
+        shader.merge_initial_state({"inputs": registers})
+
+
 def _main(args):
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level)
@@ -250,13 +311,39 @@ def _main(args):
     inputs = {}
     if args.inputs:
         if not os.path.isfile(args.inputs):
-            print(f"Failed to open input definition file '{args.inputs}'", file=sys.stderr)
+            print(
+                f"Failed to open input definition file '{args.inputs}'", file=sys.stderr
+            )
             return 1
         with open(args.inputs, encoding="ascii") as infile:
             inputs = json.load(infile)
 
     shader = simulator.Shader()
     shader.set_initial_state(inputs)
+
+    if args.renderdoc_mesh:
+        if not os.path.isfile(args.renderdoc_mesh):
+            print(
+                f"Failed to open RenderDoc input definition file '{args.renderdoc_mesh}'", file=sys.stderr
+            )
+            return 1
+
+        with open(args.renderdoc_mesh, newline="", encoding="ascii") as csvfile:
+            reader = csv.DictReader(csvfile)
+            row = next(reader)
+            row = {key.strip(): val.strip() for key, val in row.items()}
+            _merge_inputs(row, shader)
+
+    if args.renderdoc_constants:
+        if not os.path.isfile(args.renderdoc_constants):
+            print(
+                f"Failed to open RenderDoc constant definition file '{args.renderdoc_constants}'", file=sys.stderr
+            )
+            return 1
+
+        with open(args.renderdoc_constants, newline="", encoding="ascii") as csvfile:
+            reader = csv.DictReader(csvfile)
+            _merge_constants(reader, shader)
 
     if args.source:
         if not os.path.isfile(args.source):
@@ -269,8 +356,7 @@ def _main(args):
 
     if args.json:
         output = shader.explain()
-        # DONOTSUBMIT
-        # json.dump(output, sys.stdout, indent=2, sort_keys=True)
+        json.dump(output, sys.stdout, indent=2, sort_keys=True)
         return 0
 
     app = _App()
@@ -296,20 +382,32 @@ def entrypoint():
             "-i",
             "--inputs",
             metavar="json_inputs",
-            help="Use the JSON content of the given file as the shader input state."
+            help="Use the JSON content of the given file as the shader input state.",
+        )
+
+        parser.add_argument(
+            "--renderdoc-mesh",
+            metavar="renderdoc_csv_export",
+            help="Use the v* registers in the given RenderDoc CSV file as the shader input state.",
+        )
+
+        parser.add_argument(
+            "--renderdoc-constants",
+            metavar="renderdoc_csv_export",
+            help="Use the c* values in the given RenderDoc CSV file as the shader input state.",
         )
 
         parser.add_argument(
             "--emit-inputs",
             action="store_true",
-            help="Emit a template JSON file that may be used to modify the inputs to the shader."
+            help="Emit a template JSON file that may be used to modify the inputs to the shader.",
         )
 
         parser.add_argument(
             "-j",
             "--json",
             action="store_true",
-            help="Emit a JSON document capturing the context at each instruction in the source."
+            help="Emit a JSON document capturing the context at each instruction in the source.",
         )
 
         parser.add_argument(
