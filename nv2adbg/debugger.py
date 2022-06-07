@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import sys
-from typing import Iterable, List
+from typing import Iterable, List, Set, Tuple
 
 import sshkeyboard
 
@@ -25,6 +25,12 @@ import simulator
 
 _CONSTANT_NAME_RE = re.compile(r"c\[(\d+)]")
 
+# c[12]
+# -R1.xyz
+# oD0.w
+_RAW_REGISTER_RE = re.compile(r"-?(.+?)(?:\.(.*))?$")
+
+
 def clamp(val: int, min_val: int, max_val: int) -> int:
     if val < min_val:
         return min_val
@@ -33,21 +39,96 @@ def clamp(val: int, min_val: int, max_val: int) -> int:
     return val
 
 
+def _find_ancestors(source: List[Tuple[str, dict]]) -> Tuple[dict, Set[str]]:
+    """Returns ([highlights for contributing lines], [program inputs]) for the last entry in 'source'."""
+    if not source:
+        return {}, set()
+
+    source = list(enumerate(source))
+    source.reverse()
+    instruction_dict = source[0][1][1]
+
+    def _strip(element: str) -> str:
+        match = _RAW_REGISTER_RE.match(element)
+        if not match:
+            raise Exception(f"Failed to parse register {element}")
+        # For now, just strip any mask/swizzle. Ideally these should be tracked so that writes to ignored components
+        # are not flagged as ancestors.
+        return match.group(1)
+
+    def _extract(ins: dict, key: str) -> Set[str]:
+        ret: Set[str] = set()
+        mac = ins.get("mac")
+        if mac:
+            for element in mac[key]:
+                ret.add(_strip(element))
+
+        ilu = ins.get("ilu")
+        if ilu:
+            for element in ilu[key]:
+                ret.add(_strip(element))
+        return ret
+
+    inputs = _extract(instruction_dict, "inputs")
+    highlights = {}
+    for line_num, (source_text, instruction_dict) in source[1:]:
+        outputs = _extract(instruction_dict, "outputs")
+        contributing = outputs.intersection(inputs)
+        if not contributing:
+            continue
+
+        highlights[line_num] = 0, -1
+        inputs -= outputs
+        inputs |= _extract(instruction_dict, "inputs")
+
+    return highlights, inputs
+
+
 class _Editor:
     def __init__(self):
-        self._scroll_start = 0
-        self._cursor_pos_row = 0
-        self._cursor_pos_col = 0
-        self._source: List[str] = []
+        self._scroll_start: int = 0
+        self._cursor_pos_row: int = 0
+        self._cursor_pos_col: int = 0
+        self._ancestors_row: int = -1
+        self._source: List[Tuple[str, dict]] = []
+        self._hide_untagged_rows = False
 
-    def set_source(self, source: List[str]):
+        # State for ancestor highlighting.
+        self._highlights: dict = {}
+        self._highlighted_inputs: Set[str] = set()
+
+    def set_source(self, source: List[Tuple[str, dict]]):
+        """Sets the source code in this editor to the given list of (text, instruction_info) tuples."""
         self._source = source
 
     def navigate(self, delta: int):
-        self._cursor_pos_row = clamp(self._cursor_pos_row + delta, 0, len(self._source) - 1)
+        self._cursor_pos_row = clamp(
+            self._cursor_pos_row + delta, 0, len(self._source) - 1
+        )
+
+    @property
+    def show_instruction_ancestors(self):
+        return self._ancestors_row >= 0
+
+    @show_instruction_ancestors.setter
+    def show_instruction_ancestors(self, enable: bool):
+        if not enable:
+            self._ancestors_row = -1
+        else:
+            self._ancestors_row = self._cursor_pos_row
+            self._highlights, self._highlighted_inputs = _find_ancestors(
+                self._source[: self._cursor_pos_row + 1]
+            )
+
+    def toggle_instruction_ancestors(self):
+        """Toggles highlighting of instructions that mutate the arguments of the current instruction."""
+        if self._ancestors_row == self._cursor_pos_row:
+            self.show_instruction_ancestors = False
+            return
+        self.show_instruction_ancestors = True
 
     def render(self, con: console.Console, root: Layout, target_name: str):
-        """Renders this editor instance to the given Console with the given root Layout. """
+        """Renders this editor instance to the given Console with the given root Layout."""
         render_map = root.render(con, con.options)
 
         target = root[target_name]
@@ -79,21 +160,41 @@ class _Editor:
 
         @console.group()
         def get_source():
-            for i in range(
-                self._scroll_start, self._scroll_start + visible_rows
-            ):
+            for i in range(self._scroll_start, self._scroll_start + visible_rows):
                 if i < len(self._source):
-                    selected_line = i == self._cursor_pos_row
-                    line = self._source[i]
-                    cursor = "> " if selected_line else "  "
-                    ret = Text(f"{cursor}{line}")
-                    if selected_line:
-                        ret.stylize("bold underline")
+                    line = self._source[i][0]
+                    ret = Text(f"{self._get_cursor(i)}{line}")
+                    self._stylize_line(i, ret)
                     yield ret
                 else:
                     yield Text("")
 
         root[f"{target.name}#content"].update(get_source())
+
+    def _get_cursor(self, row: int) -> str:
+        elements = []
+        if self._ancestors_row == row:
+            elements.append("=")
+        elif row in self._highlights:
+            elements.append("A")
+        if self._cursor_pos_row == row:
+            elements.append(">")
+
+        ret = "".join(elements)
+        return f"{ret:<3}"
+
+    def _stylize_line(self, line_num: int, line: Text):
+        style = set()
+        if line_num == self._cursor_pos_row:
+            style.add("bold")
+            style.add("underline")
+        if line_num in self._highlights:
+            style.add("italic")
+
+        if not style:
+            return
+
+        line.stylize(" ".join(style))
 
 
 class _App:
@@ -126,7 +227,9 @@ class _App:
 
     def set_shader_trace(self, shader_trace: dict):
         steps = shader_trace["steps"]
-        self._editor.set_source([step["source"] for step in steps])
+        self._editor.set_source(
+            [(step["source"], step["instruction"]) for step in steps]
+        )
         self._update()
 
     def _create_global_keymap(self):
@@ -166,11 +269,16 @@ class _App:
             self._editor.navigate(delta)
             sshkeyboard.stop_listening()
 
+        def toggle_ancestors():
+            self._editor.toggle_instruction_ancestors()
+            sshkeyboard.stop_listening()
+
         return {
             "up": lambda: navigate(-1),
             "down": lambda: navigate(1),
             "pageup": lambda: navigate(-5),
             "pagedown": lambda: navigate(5),
+            "a": toggle_ancestors,
         }
 
     def _create_context_keymap(self):
@@ -373,7 +481,8 @@ def _main(args):
     if args.renderdoc_mesh:
         if not os.path.isfile(args.renderdoc_mesh):
             print(
-                f"Failed to open RenderDoc input definition file '{args.renderdoc_mesh}'", file=sys.stderr
+                f"Failed to open RenderDoc input definition file '{args.renderdoc_mesh}'",
+                file=sys.stderr,
             )
             return 1
 
@@ -386,7 +495,8 @@ def _main(args):
     if args.renderdoc_constants:
         if not os.path.isfile(args.renderdoc_constants):
             print(
-                f"Failed to open RenderDoc constant definition file '{args.renderdoc_constants}'", file=sys.stderr
+                f"Failed to open RenderDoc constant definition file '{args.renderdoc_constants}'",
+                file=sys.stderr,
             )
             return 1
 

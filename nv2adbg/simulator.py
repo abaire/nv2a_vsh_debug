@@ -492,7 +492,7 @@ class Shader:
 
     def _apply(
         self, instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context
-    ):
+    ) -> Tuple[Context, dict]:
         output = input.duplicate()
 
         commands = instruction.disassemble_to_dict()
@@ -503,14 +503,14 @@ class Shader:
         if ilu:
             _ILU_HANDLERS[ilu](commands["ilu"], input, output)
 
-        return output
+        return output, commands
 
-    def _simulate(self) -> Tuple[List[Tuple[str, Context]], Context]:
+    def _simulate(self) -> Tuple[List[Tuple[str, Context, dict]], Context]:
         active_state = self._input_context
         states = []
         for line, instruction in zip(self._reformatted_source, self._instructions):
-            active_state = self._apply(instruction, active_state)
-            states.append((line, active_state))
+            active_state, command_dict = self._apply(instruction, active_state)
+            states.append((line, active_state, command_dict))
 
         return states, active_state
 
@@ -522,8 +522,12 @@ class Shader:
 
         steps, output = self._simulate()
         step_dicts = []
-        for line, output in steps:
-            entry = {"source": line, "state": output.to_dict()}
+        for line, step_output, step_dict in steps:
+            entry = {
+                "source": line,
+                "state": step_output.to_dict(),
+                "instruction": step_dict,
+            }
             step_dicts.append(entry)
         ret["steps"] = step_dicts
         ret["output"] = output.to_dict()
