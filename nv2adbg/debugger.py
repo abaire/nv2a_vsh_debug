@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import sys
-from typing import Iterable
+from typing import Iterable, List
 
 import sshkeyboard
 
@@ -29,7 +29,10 @@ class _Editor:
     def __init__(self):
         self._scroll_start = 0
         self._cursor_pos = 0, 0
-        self._source = []
+        self._source: List[str] = []
+
+    def set_source(self, source: List[str]):
+        self._source = source
 
     def render(self, con: console.Console, root: Layout, target_name: str):
         """Renders this editor instance to the given Console with the given root Layout. """
@@ -59,7 +62,10 @@ class _Editor:
             for i in range(
                 self._scroll_start + 1, self._scroll_start + 1 + visible_rows
             ):
-                yield Text("")
+                if i < len(self._source):
+                    yield Text(self._source[i - 1])
+                else:
+                    yield Text("")
 
         root[f"{target.name}#content"].update(get_source())
 
@@ -69,9 +75,10 @@ class _App:
     _SOURCE = "source"
     _CONTEXT = "context"
 
-    def __init__(self):
+    def __init__(self, shader_trace: dict):
         self._context = simulator.Context()
         self._console = console.Console()
+        self._shader_trace: dict = {}
         self._root = Layout()
         self._editor = _Editor()
         self._active_layout = self._MENU
@@ -82,12 +89,19 @@ class _App:
 
         self._update()
 
+        self.set_shader_trace(shader_trace)
+
         self._keymaps = {
             "": self._create_global_keymap(),
             self._MENU: self._create_menu_keymap(),
             self._SOURCE: self._create_source_keymap(),
             self._CONTEXT: self._create_context_keymap(),
         }
+
+    def set_shader_trace(self, shader_trace: dict):
+        steps = shader_trace["steps"]
+        self._editor.set_source([step["source"] for step in steps])
+        self._update()
 
     def _create_global_keymap(self):
         #
@@ -354,12 +368,12 @@ def _main(args):
             source = infile.read()
         shader.set_source(source)
 
+    shader_trace = shader.explain()
     if args.json:
-        output = shader.explain()
-        json.dump(output, sys.stdout, indent=2, sort_keys=True)
+        json.dump(shader_trace, sys.stdout, indent=2, sort_keys=True)
         return 0
 
-    app = _App()
+    app = _App(shader_trace)
     app.run()
 
     return 0
