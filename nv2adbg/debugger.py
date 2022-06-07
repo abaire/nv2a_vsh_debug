@@ -25,14 +25,26 @@ import simulator
 
 _CONSTANT_NAME_RE = re.compile(r"c\[(\d+)]")
 
+def clamp(val: int, min_val: int, max_val: int) -> int:
+    if val < min_val:
+        return min_val
+    if val > max_val:
+        return max_val
+    return val
+
+
 class _Editor:
     def __init__(self):
         self._scroll_start = 0
-        self._cursor_pos = 0, 0
+        self._cursor_pos_row = 0
+        self._cursor_pos_col = 0
         self._source: List[str] = []
 
     def set_source(self, source: List[str]):
         self._source = source
+
+    def navigate(self, delta: int):
+        self._cursor_pos_row = clamp(self._cursor_pos_row + delta, 0, len(self._source) - 1)
 
     def render(self, con: console.Console, root: Layout, target_name: str):
         """Renders this editor instance to the given Console with the given root Layout. """
@@ -41,6 +53,14 @@ class _Editor:
         target = root[target_name]
         region = render_map[target].region
         visible_rows = region.height
+
+        middle_row = visible_rows // 2
+        if self._cursor_pos_row < middle_row:
+            self._scroll_start = 0
+        elif self._cursor_pos_row >= len(self._source) - middle_row:
+            self._scroll_start = len(self._source) - visible_rows
+        else:
+            self._scroll_start = self._cursor_pos_row - middle_row
 
         target.split_row(
             Layout(name=f"{target.name}#line", size=4),
@@ -60,10 +80,16 @@ class _Editor:
         @console.group()
         def get_source():
             for i in range(
-                self._scroll_start + 1, self._scroll_start + 1 + visible_rows
+                self._scroll_start, self._scroll_start + visible_rows
             ):
                 if i < len(self._source):
-                    yield Text(self._source[i - 1])
+                    selected_line = i == self._cursor_pos_row
+                    line = self._source[i]
+                    cursor = "> " if selected_line else "  "
+                    ret = Text(f"{cursor}{line}")
+                    if selected_line:
+                        ret.stylize("bold underline")
+                    yield ret
                 else:
                     yield Text("")
 
@@ -81,7 +107,7 @@ class _App:
         self._shader_trace: dict = {}
         self._root = Layout()
         self._editor = _Editor()
-        self._active_layout = self._MENU
+        self._active_layout = self._SOURCE if shader_trace else self._MENU
 
         self._source_start = 0
         self._context_start = 0
@@ -136,7 +162,16 @@ class _App:
         return {}
 
     def _create_source_keymap(self):
-        return {}
+        def navigate(delta: int):
+            self._editor.navigate(delta)
+            sshkeyboard.stop_listening()
+
+        return {
+            "up": lambda: navigate(-1),
+            "down": lambda: navigate(1),
+            "pageup": lambda: navigate(-5),
+            "pagedown": lambda: navigate(5),
+        }
 
     def _create_context_keymap(self):
         return {}
