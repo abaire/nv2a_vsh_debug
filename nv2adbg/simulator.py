@@ -490,6 +490,10 @@ class Shader:
         """Merges values from the given dictionary into the current initial context."""
         self._input_context.from_dict(state)
 
+    @property
+    def initial_state(self) -> Context:
+        return self._input_context
+
     def _apply(
         self, instruction: nv2avsh.vsh_instruction.VshInstruction, input: Context
     ) -> Tuple[Context, dict]:

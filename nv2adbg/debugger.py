@@ -146,11 +146,14 @@ class _Editor:
         self._highlighted_inputs.clear()
         self._update_filter()
 
-    def export(self, filename: str):
+    def export(self, filename: str, input_resolver):
         with open(filename, "w", encoding="ascii") as outfile:
             print("; Inputs:", file=outfile)
             for input in sorted(self._active_inputs):
-                print(f"; {input}", file=outfile)
+                value = ""
+                if input_resolver:
+                    value = f" = {input_resolver(input)}"
+                print(f"; {input}{value}", file=outfile)
 
             print("", file=outfile)
 
@@ -331,8 +334,8 @@ class _App:
     _SOURCE = "source"
     _CONTEXT = "context"
 
-    def __init__(self, shader_trace: dict):
-        self._context = simulator.Context()
+    def __init__(self, shader: simulator.Shader, shader_trace: dict):
+        self._shader = shader
         self._console = console.Console()
         self._shader_trace: dict = {}
         self._root = Layout()
@@ -383,7 +386,10 @@ class _App:
         if os.path.exists(filename):
             raise Exception("Failed to find an unused export filename.")
 
-        self._editor.export(filename)
+        def resolve(input):
+            return self._shader.initial_state.get(input)
+
+        self._editor.export(filename, resolve)
 
     def _create_menu_keymap(self):
         def handle_file():
@@ -577,7 +583,7 @@ def _merge_inputs(row: dict, shader: simulator.Shader):
 
         inputs.append(register)
 
-    shader.merge_initial_state({"inputs": inputs})
+    shader.merge_initial_state({"input": inputs})
 
 
 def _merge_constants(rows: Iterable, shader: simulator.Shader):
@@ -586,8 +592,8 @@ def _merge_constants(rows: Iterable, shader: simulator.Shader):
         name = row.get("Name", "")
         match = _CONSTANT_NAME_RE.match(name)
         if not match:
-            return
-        register = [match.group(1)]
+            continue
+        register = [f"c{match.group(1)}"]
 
         values = row.get("Value")
         if not values:
@@ -598,7 +604,7 @@ def _merge_constants(rows: Iterable, shader: simulator.Shader):
         registers.append(register)
 
     if registers:
-        shader.merge_initial_state({"inputs": registers})
+        shader.merge_initial_state({"constant": registers})
 
 
 def _main(args):
@@ -663,7 +669,7 @@ def _main(args):
         json.dump(shader_trace, sys.stdout, indent=2, sort_keys=True)
         return 0
 
-    app = _App(shader_trace)
+    app = _App(shader, shader_trace)
     app.run()
 
     return 0
