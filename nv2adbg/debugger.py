@@ -9,13 +9,13 @@ import logging
 import os
 import re
 import sys
+import textwrap
 from typing import Iterable, List, Set, Tuple
 
 import sshkeyboard
 
 import rich
 from rich import console
-from rich.jupyter import JupyterMixin
 from rich.layout import Layout
 from rich.rule import Rule
 from rich.text import Text
@@ -39,6 +39,45 @@ def clamp(val: int, min_val: int, max_val: int) -> int:
     return val
 
 
+def _strip_register_name(element: str) -> str:
+    match = _RAW_REGISTER_RE.match(element)
+    if not match:
+        raise Exception(f"Failed to parse register {element}")
+    # For now, just strip any mask/swizzle. Ideally these should be tracked so that writes to ignored components
+    # are not flagged as ancestors.
+    return match.group(1)
+
+
+def _extract_register_names(ins: dict, key: str) -> Set[str]:
+    ret: Set[str] = set()
+    mac = ins.get("mac")
+    if mac:
+        for element in mac[key]:
+            ret.add(_strip_register_name(element))
+
+    ilu = ins.get("ilu")
+    if ilu:
+        for element in ilu[key]:
+            ret.add(_strip_register_name(element))
+    return ret
+
+
+def _discover_inputs(source: List[Tuple[int, Tuple[str, dict]]]) -> Set[str]:
+    """Returns a set of all inputs into the given list of source lines."""
+    ret = set()
+    outputs = set()
+
+    for _, (_, instruction_dict) in source:
+        ins_in = _extract_register_names(instruction_dict, "inputs")
+        if "R12" in ins_in:
+            ins_in.remove("R12")
+            ins_in.add("oPos")
+        ret |= ins_in.difference(outputs)
+        outputs |= _extract_register_names(instruction_dict, "outputs")
+
+    return ret
+
+
 def _find_ancestors(
     source: List[Tuple[int, Tuple[str, dict]]]
 ) -> Tuple[dict, Set[str]]:
@@ -50,38 +89,17 @@ def _find_ancestors(
     source.reverse()
     instruction_dict = source[0][1][1]
 
-    def _strip(element: str) -> str:
-        match = _RAW_REGISTER_RE.match(element)
-        if not match:
-            raise Exception(f"Failed to parse register {element}")
-        # For now, just strip any mask/swizzle. Ideally these should be tracked so that writes to ignored components
-        # are not flagged as ancestors.
-        return match.group(1)
-
-    def _extract(ins: dict, key: str) -> Set[str]:
-        ret: Set[str] = set()
-        mac = ins.get("mac")
-        if mac:
-            for element in mac[key]:
-                ret.add(_strip(element))
-
-        ilu = ins.get("ilu")
-        if ilu:
-            for element in ilu[key]:
-                ret.add(_strip(element))
-        return ret
-
-    inputs = _extract(instruction_dict, "inputs")
+    inputs = _extract_register_names(instruction_dict, "inputs")
     highlights = {}
-    for line_num, (source_text, instruction_dict) in source[1:]:
-        outputs = _extract(instruction_dict, "outputs")
+    for line_num, (_, instruction_dict) in source[1:]:
+        outputs = _extract_register_names(instruction_dict, "outputs")
         contributing = outputs.intersection(inputs)
         if not contributing:
             continue
 
         highlights[line_num] = 0, -1
         inputs -= outputs
-        inputs |= _extract(instruction_dict, "inputs")
+        inputs |= _extract_register_names(instruction_dict, "inputs")
 
     return highlights, inputs
 
@@ -101,10 +119,12 @@ class _Editor:
         # State for ancestor highlighting.
         self._highlights: dict = {}
         self._highlighted_inputs: Set[str] = set()
+        self._used_inputs: Set[str] = set()
 
     def set_source(self, source: List[Tuple[str, dict]]):
         """Sets the source code in this editor to the given list of (text, instruction_info) tuples."""
         self._source = list(enumerate(source))
+        self._used_inputs = _discover_inputs(self._source)
         self._highlights.clear()
         self._highlighted_inputs.clear()
         self._update_filter()
@@ -176,19 +196,44 @@ class _Editor:
         target = root[target_name]
         region = render_map[target].region
         visible_rows = region.height
+        visible_columns = region.width
+
+        source_region_name = f"{target.name}#src"
+        inputs_region_name = f"{target.name}#inputs"
+
+        inputs = textwrap.fill(", ".join(sorted(self._active_inputs)), visible_columns)
+        num_input_lines = inputs.count("\n") + 1
+
+        input = Text(inputs)
+        input.highlight_words(self._highlighted_inputs, "bold italic blue")
+
+        target.split_column(
+            Layout(name=source_region_name),
+            Layout(name=inputs_region_name, size=num_input_lines + 1),
+        )
+
+        if not self._active_inputs:
+            num_input_lines = 0
+            target[inputs_region_name].visible = False
+        else:
+            target[inputs_region_name].split_column(
+                Layout(Rule(), size=1),
+                Layout(input),
+            )
+            visible_rows -= num_input_lines + 1
 
         middle_row = visible_rows // 2
         if self._display_cursor_row < middle_row:
             self._scroll_start = 0
-        elif self._display_cursor_row >= len(self._source) - middle_row:
-            self._scroll_start = len(self._source) - visible_rows
+        elif self._display_cursor_row >= len(self._active_source) - middle_row:
+            self._scroll_start = len(self._active_source) - visible_rows
         else:
             self._scroll_start = self._display_cursor_row - middle_row
 
-        target.split_row(
-            Layout(name=f"{target.name}#line", size=4),
-            Layout(name=f"{target.name}#content"),
-            Layout(name=f"{target.name}#scrollbar", size=1),
+        target[source_region_name].split_row(
+            Layout(name=f"{source_region_name}#line", size=4),
+            Layout(name=f"{source_region_name}#content"),
+            # Layout(name=f"{target.name}#scrollbar", size=1),
         )
 
         @console.group()
@@ -196,7 +241,7 @@ class _Editor:
             for line, _ in self._get_active_source_region(visible_rows):
                 yield Text(f"{line:>3}")
 
-        root[f"{target.name}#line"].update(get_line_numbers())
+        root[f"{target.name}#src#line"].update(get_line_numbers())
 
         @console.group()
         def get_source():
@@ -207,7 +252,15 @@ class _Editor:
                 self._stylize_line(line_num, ret)
                 yield ret
 
-        root[f"{target.name}#content"].update(get_source())
+        root[f"{target.name}#src#content"].update(get_source())
+
+    @property
+    def _active_inputs(self) -> Set[str]:
+        return (
+            self._highlighted_inputs
+            if self._filter_untagged_rows
+            else self._used_inputs
+        )
 
     @property
     def _active_source(self) -> List[Tuple[int, Tuple[str, dict]]]:
@@ -259,7 +312,6 @@ class _App:
         self._editor = _Editor()
         self._active_layout = self._SOURCE if shader_trace else self._MENU
 
-        self._source_start = 0
         self._context_start = 0
         self._running = False
 
@@ -282,24 +334,6 @@ class _App:
         self._update()
 
     def _create_global_keymap(self):
-        #
-        # HANDLE esc
-        # HANDLE esc
-        # HANDLE tab
-        # HANDLE /
-        # HANDLE backspace
-        # HANDLE \
-        # "space"
-        #     HANDLE delete
-        #     "\x1bOA": "up",
-        #     "\x1bOB": "down",
-        #     "\x1bOC": "right",
-        #     "\x1bOD": "left",
-        #     "\x1b[2~": "insert",
-        #     "\x1b[3~": "delete",
-        #     "\x1b[5~": "pageup",
-        #     "\x1b[6~": "pagedown",
-
         def _gen_focus(target):
             self._activate_section(target)
             sshkeyboard.stop_listening()
@@ -307,7 +341,7 @@ class _App:
         return {
             "f1": lambda: _gen_focus(self._MENU),
             "f2": lambda: _gen_focus(self._SOURCE),
-            "f3": lambda: _gen_focus(self._CONTEXT),
+            # "f3": lambda: _gen_focus(self._CONTEXT),
         }
 
     def _create_menu_keymap(self):
@@ -341,7 +375,8 @@ class _App:
     def _activate_section(self, target):
         self._active_layout = target
 
-        for section in [self._MENU, self._SOURCE, self._CONTEXT]:
+        # for section in [self._MENU, self._SOURCE, self._CONTEXT]:
+        for section in [self._MENU, self._SOURCE]:
 
             def content():
                 if self._active_layout == section:
@@ -358,11 +393,9 @@ class _App:
         self._root.split_column(
             Layout(name=self._MENU, size=1),
             Layout(name=self._SOURCE),
-            Layout(name="#rule", size=1),
-            Layout(name=self._CONTEXT),
+            # Layout(name="#rule", size=1),
+            # Layout(name=self._CONTEXT),
         )
-
-        self._root["#rule"].update(Rule())
 
         self._root[self._MENU].split_row(
             Layout(name=f"{self._MENU}#active", size=1),
@@ -374,20 +407,22 @@ class _App:
             Layout(name=f"{self._SOURCE}#content"),
         )
 
-        self._root[self._CONTEXT].split_row(
-            Layout(name=f"{self._CONTEXT}#active", size=1),
-            Layout(name=f"{self._CONTEXT}#content"),
-            Layout(name=f"{self._CONTEXT}#scrollbar", size=1),
-        )
+        # self._root["#rule"].update(Rule())
 
-        self._root[f"{self._CONTEXT}#content"].split_row(
-            Layout(name=f"{self._CONTEXT}#content#left"),
-            Layout(name=f"{self._CONTEXT}#content#right"),
-        )
+        # self._root[self._CONTEXT].split_row(
+        #     Layout(name=f"{self._CONTEXT}#active", size=1),
+        #     Layout(name=f"{self._CONTEXT}#content"),
+        #     Layout(name=f"{self._CONTEXT}#scrollbar", size=1),
+        # )
+        #
+        # self._root[f"{self._CONTEXT}#content"].split_row(
+        #     Layout(name=f"{self._CONTEXT}#content#left"),
+        #     Layout(name=f"{self._CONTEXT}#content#right"),
+        # )
 
         self._update_menu()
         self._update_source()
-        self._update_context()
+        # self._update_context()
         self._activate_section(self._active_layout)
 
     def _update_menu(self):
@@ -401,29 +436,29 @@ class _App:
     def _update_source(self):
         self._editor.render(self._console, self._root, f"{self._SOURCE}#content")
 
-    def _update_context(self):
-        registers = self._context.registers
-        num_items = len(registers)
-
-        left = self._root[f"{self._CONTEXT}#content#left"]
-        right = self._root[f"{self._CONTEXT}#content#right"]
-        right.visible = False
-        render_map = self._root.render(self._console, self._console.options)
-
-        region = render_map[left].region
-        max_width = region.width
-
-        last_item = min(num_items, self._context_start + region.height)
-
-        @console.group()
-        def get_registers():
-            for reg in registers[self._context_start : last_item]:
-                yield Text.assemble(
-                    (f"{reg.name:>5}", "cyan"),
-                    f" {reg.x:f}, {reg.y:f}, {reg.z:f}, {reg.w:f}",
-                )
-
-        self._root[f"{self._CONTEXT}#content#left"].update(get_registers())
+    # def _update_context(self):
+    #     registers = self._context.registers
+    #     num_items = len(registers)
+    #
+    #     left = self._root[f"{self._CONTEXT}#content#left"]
+    #     right = self._root[f"{self._CONTEXT}#content#right"]
+    #     right.visible = False
+    #     render_map = self._root.render(self._console, self._console.options)
+    #
+    #     region = render_map[left].region
+    #     max_width = region.width
+    #
+    #     last_item = min(num_items, self._context_start + region.height)
+    #
+    #     @console.group()
+    #     def get_registers():
+    #         for reg in registers[self._context_start : last_item]:
+    #             yield Text.assemble(
+    #                 (f"{reg.name:>5}", "cyan"),
+    #                 f" {reg.x:f}, {reg.y:f}, {reg.z:f}, {reg.w:f}",
+    #             )
+    #
+    #     self._root[f"{self._CONTEXT}#content#left"].update(get_registers())
 
     def render(self):
         """Draws the application to the console."""
