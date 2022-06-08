@@ -261,7 +261,7 @@ class _Editor:
         if self._display_cursor_row < middle_row:
             self._scroll_start = 0
         elif self._display_cursor_row > active_source_len - visible_rows:
-            self._scroll_start = active_source_len - visible_rows
+            self._scroll_start = max(0, active_source_len - visible_rows)
         else:
             self._scroll_start = self._display_cursor_row - middle_row
 
