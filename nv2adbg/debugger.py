@@ -39,12 +39,14 @@ def clamp(val: int, min_val: int, max_val: int) -> int:
     return val
 
 
-def _find_ancestors(source: List[Tuple[str, dict]]) -> Tuple[dict, Set[str]]:
+def _find_ancestors(
+    source: List[Tuple[int, Tuple[str, dict]]]
+) -> Tuple[dict, Set[str]]:
     """Returns ([highlights for contributing lines], [program inputs]) for the last entry in 'source'."""
     if not source:
         return {}, set()
 
-    source = list(enumerate(source))
+    source = list(source)
     source.reverse()
     instruction_dict = source[0][1][1]
 
@@ -87,11 +89,14 @@ def _find_ancestors(source: List[Tuple[str, dict]]) -> Tuple[dict, Set[str]]:
 class _Editor:
     def __init__(self):
         self._scroll_start: int = 0
-        self._cursor_pos_row: int = 0
+        self._display_cursor_row: int = 0
         self._cursor_pos_col: int = 0
         self._ancestors_row: int = -1
-        self._source: List[Tuple[str, dict]] = []
-        self._hide_untagged_rows = False
+        self._source: List[Tuple[int, Tuple[str, dict]]] = []
+
+        self._filtered_source: List[Tuple[int, Tuple[str, dict]]] = []
+        self._filter_untagged_rows = False
+        self._data_cursor_row: int = 0
 
         # State for ancestor highlighting.
         self._highlights: dict = {}
@@ -99,12 +104,48 @@ class _Editor:
 
     def set_source(self, source: List[Tuple[str, dict]]):
         """Sets the source code in this editor to the given list of (text, instruction_info) tuples."""
-        self._source = source
+        self._source = list(enumerate(source))
+        self._highlights.clear()
+        self._highlighted_inputs.clear()
+        self._update_filter()
+
+    def _update_filter(self):
+        self._filtered_source = self._source
+        if not self._ancestors_row:
+            return
+
+        def _keep(entry: Tuple[int, Tuple[str, dict]]) -> bool:
+            line_num = entry[0]
+            if line_num == self._ancestors_row:
+                return True
+            if line_num in self._highlights:
+                return True
+            return False
+
+        self._filtered_source = [entry for entry in self._source if _keep(entry)]
 
     def navigate(self, delta: int):
-        self._cursor_pos_row = clamp(
-            self._cursor_pos_row + delta, 0, len(self._source) - 1
+        source = self._active_source
+        self._display_cursor_row = clamp(
+            self._display_cursor_row + delta, 0, len(source) - 1
         )
+        self._data_cursor_row = source[self._display_cursor_row][0]
+
+    @property
+    def filter_untagged_rows(self) -> bool:
+        return self._filter_untagged_rows
+
+    @filter_untagged_rows.setter
+    def filter_untagged_rows(self, enable: bool):
+        self._filter_untagged_rows = enable
+        if enable:
+            i = 0
+            num_rows = len(self._filtered_source)
+            while i < num_rows and self._filtered_source[i][0] != self._data_cursor_row:
+                i += 1
+            self._display_cursor_row = clamp(i, 0, num_rows - 1)
+        else:
+            self._display_cursor_row = self._data_cursor_row
 
     @property
     def show_instruction_ancestors(self):
@@ -115,14 +156,15 @@ class _Editor:
         if not enable:
             self._ancestors_row = -1
         else:
-            self._ancestors_row = self._cursor_pos_row
+            self._ancestors_row = self._data_cursor_row
             self._highlights, self._highlighted_inputs = _find_ancestors(
-                self._source[: self._cursor_pos_row + 1]
+                self._source[: self._data_cursor_row + 1]
             )
+            self._update_filter()
 
     def toggle_instruction_ancestors(self):
         """Toggles highlighting of instructions that mutate the arguments of the current instruction."""
-        if self._ancestors_row == self._cursor_pos_row:
+        if self._ancestors_row == self._data_cursor_row:
             self.show_instruction_ancestors = False
             return
         self.show_instruction_ancestors = True
@@ -136,12 +178,12 @@ class _Editor:
         visible_rows = region.height
 
         middle_row = visible_rows // 2
-        if self._cursor_pos_row < middle_row:
+        if self._display_cursor_row < middle_row:
             self._scroll_start = 0
-        elif self._cursor_pos_row >= len(self._source) - middle_row:
+        elif self._display_cursor_row >= len(self._source) - middle_row:
             self._scroll_start = len(self._source) - visible_rows
         else:
-            self._scroll_start = self._cursor_pos_row - middle_row
+            self._scroll_start = self._display_cursor_row - middle_row
 
         target.split_row(
             Layout(name=f"{target.name}#line", size=4),
@@ -151,33 +193,40 @@ class _Editor:
 
         @console.group()
         def get_line_numbers():
-            for i in range(
-                self._scroll_start + 1, self._scroll_start + 1 + visible_rows
-            ):
-                yield Text(f"{i:>3}")
+            for line, _ in self._get_active_source_region(visible_rows):
+                yield Text(f"{line:>3}")
 
         root[f"{target.name}#line"].update(get_line_numbers())
 
         @console.group()
         def get_source():
-            for i in range(self._scroll_start, self._scroll_start + visible_rows):
-                if i < len(self._source):
-                    line = self._source[i][0]
-                    ret = Text(f"{self._get_cursor(i)}{line}")
-                    self._stylize_line(i, ret)
-                    yield ret
-                else:
-                    yield Text("")
+            for line_num, (source_code, _) in self._get_active_source_region(
+                visible_rows
+            ):
+                ret = Text(f"{self._get_cursor(line_num)}{source_code}")
+                self._stylize_line(line_num, ret)
+                yield ret
 
         root[f"{target.name}#content"].update(get_source())
+
+    @property
+    def _active_source(self) -> List[Tuple[int, Tuple[str, dict]]]:
+        return self._filtered_source if self._filter_untagged_rows else self._source
+
+    def _get_active_source_region(
+        self, visible_rows: int
+    ) -> List[Tuple[int, Tuple[str, dict]]]:
+        source = self._active_source
+        end = min(self._scroll_start + visible_rows, len(source))
+        return source[self._scroll_start : end]
 
     def _get_cursor(self, row: int) -> str:
         elements = []
         if self._ancestors_row == row:
             elements.append("=")
         elif row in self._highlights:
-            elements.append("A")
-        if self._cursor_pos_row == row:
+            elements.append("A" if self._filter_untagged_rows else "a")
+        if self._data_cursor_row == row:
             elements.append(">")
 
         ret = "".join(elements)
@@ -185,7 +234,7 @@ class _Editor:
 
     def _stylize_line(self, line_num: int, line: Text):
         style = set()
-        if line_num == self._cursor_pos_row:
+        if line_num == self._data_cursor_row:
             style.add("bold")
             style.add("underline")
         if line_num in self._highlights:
@@ -273,12 +322,17 @@ class _App:
             self._editor.toggle_instruction_ancestors()
             sshkeyboard.stop_listening()
 
+        def toggle_filtering():
+            self._editor.filter_untagged_rows = not self._editor.filter_untagged_rows
+            sshkeyboard.stop_listening()
+
         return {
             "up": lambda: navigate(-1),
             "down": lambda: navigate(1),
             "pageup": lambda: navigate(-5),
             "pagedown": lambda: navigate(5),
             "a": toggle_ancestors,
+            "f": toggle_filtering,
         }
 
     def _create_context_keymap(self):
@@ -376,7 +430,7 @@ class _App:
         rich.print(self._root)
 
     def _handle_key(self, key):
-        if key == "esc":
+        if key == "esc" or key == "q":
             self._running = False
             sshkeyboard.stop_listening()
 
@@ -504,6 +558,7 @@ def _main(args):
             reader = csv.DictReader(csvfile)
             _merge_constants(reader, shader)
 
+    shader_trace = {}
     if args.source:
         if not os.path.isfile(args.source):
             print(f"Failed to open source file '{args.source}'", file=sys.stderr)
@@ -512,8 +567,8 @@ def _main(args):
         with open(args.source, encoding="utf-8") as infile:
             source = infile.read()
         shader.set_source(source)
+        shader_trace = shader.explain()
 
-    shader_trace = shader.explain()
     if args.json:
         json.dump(shader_trace, sys.stdout, indent=2, sort_keys=True)
         return 0
