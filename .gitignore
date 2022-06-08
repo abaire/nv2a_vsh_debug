@@ -12,3 +12,4 @@ out/
 dist/
 
 *.pyc
+export*.vsh

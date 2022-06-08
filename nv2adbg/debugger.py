@@ -146,6 +146,17 @@ class _Editor:
         self._highlighted_inputs.clear()
         self._update_filter()
 
+    def export(self, filename: str):
+        with open(filename, "w", encoding="ascii") as outfile:
+            print("; Inputs:", file=outfile)
+            for input in sorted(self._active_inputs):
+                print(f"; {input}", file=outfile)
+
+            print("", file=outfile)
+
+            for line in self._active_source:
+                print(line[1][0], file=outfile)
+
     def _update_filter(self):
         self._filtered_source = self._source
         if not self._ancestors_row:
@@ -230,7 +241,6 @@ class _Editor:
         )
 
         if not self._active_inputs:
-            num_input_lines = 0
             target[inputs_region_name].visible = False
         else:
             target[inputs_region_name].split_column(
@@ -357,12 +367,32 @@ class _App:
 
         return {
             "f1": lambda: _gen_focus(self._MENU),
+            "1": lambda: _gen_focus(self._MENU),
             "f2": lambda: _gen_focus(self._SOURCE),
+            "2": lambda: _gen_focus(self._SOURCE),
             # "f3": lambda: _gen_focus(self._CONTEXT),
         }
 
+    def _export(self):
+        # TODO: Pop a text input dialog and capture a filename.
+        filename = ""
+        for index in range(1000):
+            filename = f"export{index:04}.vsh"
+            if not os.path.exists(filename):
+                break
+        if os.path.exists(filename):
+            raise Exception("Failed to find an unused export filename.")
+
+        self._editor.export(filename)
+
     def _create_menu_keymap(self):
-        return {}
+        def handle_file():
+            pass
+
+        return {
+            "f": handle_file,
+            "e": self._export,
+        }
 
     def _create_source_keymap(self):
         def navigate(delta: int):
@@ -443,10 +473,18 @@ class _App:
         self._activate_section(self._active_layout)
 
     def _update_menu(self):
+        menu_spacing = "    "
+        menu_items = ["File", "Export"]
+
         def content():
             if self._active_layout == self._MENU:
-                return Text("[F]ile", style="bold magenta", justify="left")
-            return Text("File", style="magenta", justify="left")
+                elements = []
+                for title in menu_items:
+                    elements.append((f"[{title[0]}]", "bold magenta"))
+                    elements.append(title[1:])
+                    elements.append(menu_spacing)
+                return Text.assemble(*elements)
+            return Text(menu_spacing.join(menu_items), style="magenta", justify="left")
 
         self._root[f"{self._MENU}#content"].update(content())
 
