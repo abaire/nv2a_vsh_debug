@@ -423,6 +423,8 @@ class _App:
             "down": lambda: navigate(1),
             "pageup": lambda: navigate(-5),
             "pagedown": lambda: navigate(5),
+            "home": lambda: navigate(-1000000000),
+            "end": lambda: navigate(1000000000),
             "a": toggle_ancestors,
             "f": toggle_filtering,
         }
