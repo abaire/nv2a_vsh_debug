@@ -257,10 +257,11 @@ class _Editor:
             visible_rows -= num_input_lines + 1
 
         middle_row = visible_rows // 2
+        active_source_len = len(self._active_source)
         if self._display_cursor_row < middle_row:
             self._scroll_start = 0
-        elif self._display_cursor_row >= len(self._active_source) - middle_row:
-            self._scroll_start = len(self._active_source) - visible_rows
+        elif self._display_cursor_row > active_source_len - visible_rows:
+            self._scroll_start = active_source_len - visible_rows
         else:
             self._scroll_start = self._display_cursor_row - middle_row
 
