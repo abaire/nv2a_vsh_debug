@@ -98,6 +98,10 @@ def _find_ancestors(
     external_inputs = external_inputs.get("mac", set()) | external_inputs.get(
         "ilu", set()
     )
+    if "R12" in external_inputs:
+        external_inputs.remove("R12")
+        external_inputs.add("oPos")
+
     highlights = {}
     for line_num, (_, instruction_dict) in source[1:]:
         ins_outs = _extract_register_names(instruction_dict, "outputs")
