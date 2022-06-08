@@ -23,6 +23,8 @@ from rich.text import Text
 
 import simulator
 
+# Mapping of register name to a set of the masked components
+RegisterDictT = Dict[str, Set[str]]
 
 _CONSTANT_NAME_RE = re.compile(r"c\[(\d+)]")
 
@@ -40,89 +42,162 @@ def clamp(val: int, min_val: int, max_val: int) -> int:
     return val
 
 
-def _strip_register_name(element: str) -> str:
+def _strip_register_name(element: str) -> Tuple[str, Set[str]]:
     match = _RAW_REGISTER_RE.match(element)
     if not match:
         raise Exception(f"Failed to parse register {element}")
-    # For now, just strip any mask/swizzle. Ideally these should be tracked so that writes to ignored components
-    # are not flagged as ancestors.
-    return match.group(1)
+
+    mask = match.group(2)
+    if not mask:
+        mask = "xyzw"
+    return match.group(1), set(mask)
 
 
-def _extract_register_names(ins: dict, key: str) -> Dict[str, Set[str]]:
-    ret = collections.defaultdict(set)
+def _extract_register_dict(ins: Dict[str, dict], key: str) -> Dict[str, RegisterDictT]:
+    """Creates a {mac|ilu: {register: mask_set}} dict for the given instruction dict."""
+    ret = collections.defaultdict(dict)
     mac = ins.get("mac")
     if mac:
         for element in mac[key]:
-            ret["mac"].add(_strip_register_name(element))
+            reg, mask = _strip_register_name(element)
+            if reg in ret["mac"]:
+                ret["mac"][reg].update(mask)
+            else:
+                ret["mac"][reg] = mask
 
     ilu = ins.get("ilu")
     if ilu:
         for element in ilu[key]:
-            ret["ilu"].add(_strip_register_name(element))
+            reg, mask = _strip_register_name(element)
+            if reg in ret["ilu"]:
+                ret["ilu"][reg].update(mask)
+            else:
+                ret["ilu"][reg] = mask
     return ret
 
 
-def _discover_inputs(source: List[Tuple[int, Tuple[str, dict]]]) -> Set[str]:
+def _merge_register_dict_into(into: RegisterDictT, new_regs: RegisterDictT):
+    """Merges a second {register: mask} dict into the first."""
+    for reg, mask in new_regs.items():
+        new_mask = into.get(reg, set())
+        new_mask.update(mask)
+        into[reg] = new_mask
+
+
+def _merge_register_dicts(reg_a: RegisterDictT, reg_b: RegisterDictT) -> RegisterDictT:
+    """Merges two {register: mask} dicts."""
+    ret = dict(reg_a)
+    _merge_register_dict_into(ret, reg_b)
+    return ret
+
+
+def _flatten_register_dicts(regs: Dict[str, RegisterDictT]) -> RegisterDictT:
+    """Merge MAC and ILU registers into a single {register: mask} dict."""
+    return _merge_register_dicts(regs.get("mac", {}), regs.get("ilu", {}))
+
+
+def _register_dict_subtract(reg_a: RegisterDictT, reg_b: RegisterDictT):
+    """Removes any keys/masks in reg_a that are present in reg_b."""
+    for reg, mask in reg_b.items():
+        current_mask = reg_a.get(reg, set())
+        if not current_mask:
+            continue
+
+        new_mask = current_mask - mask
+        if not new_mask:
+            del reg_a[reg]
+            continue
+        reg_a[reg] = new_mask
+
+
+def _register_dict_intersection(
+    reg_a: RegisterDictT, reg_b: RegisterDictT
+) -> RegisterDictT:
+    """Returns a {register: mask} dict containing the intersection of the two dicts."""
+    ret = {}
+    for reg, mask in reg_b.items():
+        current_mask = reg_a.get(reg, set())
+        if not current_mask:
+            continue
+
+        intersection = current_mask & mask
+        if not intersection:
+            continue
+        ret[reg] = intersection
+    return ret
+
+
+def _resolve_r12_alias(regs: RegisterDictT):
+    """Updates the given dictionary by replacing any R12 references with oPos."""
+    if "R12" not in regs:
+        return
+
+    mask = regs["R12"]
+    if "oPos" in regs:
+        regs["oPos"].update(mask)
+    else:
+        regs["oPos"] = mask
+    del regs["R12"]
+
+
+def _discover_inputs(source: List[Tuple[int, Tuple[str, dict]]]) -> RegisterDictT:
     """Returns a set of all inputs into the given list of source lines."""
-    ret = set()
-    outputs = set()
+    ret = {}
+    outputs = {}
 
     for _, (_, instruction_dict) in source:
-        ins_in = _extract_register_names(instruction_dict, "inputs")
-        flat_ins = ins_in.get("mac", set()) | ins_in.get("ilu", set())
-        if "R12" in flat_ins:
-            flat_ins.remove("R12")
-            flat_ins.add("oPos")
-        ret |= flat_ins.difference(outputs)
+        instruction_inputs = _extract_register_dict(instruction_dict, "inputs")
+        flat_ins = _flatten_register_dicts(instruction_inputs)
+        _resolve_r12_alias(flat_ins)
 
-        ins_outs = _extract_register_names(instruction_dict, "outputs")
-        outputs |= ins_outs.get("mac", set())
-        outputs |= ins_outs.get("ilu", set())
+        # Merge in any inputs for which there are no known outputs.
+        _register_dict_subtract(flat_ins, outputs)
+        _merge_register_dict_into(ret, flat_ins)
+
+        instruction_outputs = _flatten_register_dicts(
+            _extract_register_dict(instruction_dict, "outputs")
+        )
+        _merge_register_dict_into(outputs, instruction_outputs)
 
     return ret
 
 
 def _find_ancestors(
     source: List[Tuple[int, Tuple[str, dict]]]
-) -> Tuple[dict, Set[str]]:
+) -> Tuple[dict, RegisterDictT]:
     """Returns ([highlights for contributing lines], [program inputs]) for the last entry in 'source'."""
     if not source:
-        return {}, set()
+        return {}, {}
 
     source = list(source)
     source.reverse()
     instruction_dict = source[0][1][1]
 
-    external_inputs = _extract_register_names(instruction_dict, "inputs")
-    external_inputs = external_inputs.get("mac", set()) | external_inputs.get(
-        "ilu", set()
-    )
-    if "R12" in external_inputs:
-        external_inputs.remove("R12")
-        external_inputs.add("oPos")
+    step_inputs = _extract_register_dict(instruction_dict, "inputs")
+    step_inputs = _flatten_register_dicts(step_inputs)
+    _resolve_r12_alias(step_inputs)
 
     highlights = {}
     for line_num, (_, instruction_dict) in source[1:]:
-        ins_outs = _extract_register_names(instruction_dict, "outputs")
-        ins_ins = _extract_register_names(instruction_dict, "inputs")
-        mac_outputs = ins_outs.get("mac", set())
-        ilu_outputs = ins_outs.get("ilu", set())
-        contributing_mac = mac_outputs.intersection(external_inputs)
-        contributing_ilu = ilu_outputs.intersection(external_inputs)
+        ins_outs = _extract_register_dict(instruction_dict, "outputs")
+        ins_ins = _extract_register_dict(instruction_dict, "inputs")
+        mac_outputs = ins_outs.get("mac", {})
+        ilu_outputs = ins_outs.get("ilu", {})
+        contributing_mac = _register_dict_intersection(mac_outputs, step_inputs)
+        contributing_ilu = _register_dict_intersection(ilu_outputs, step_inputs)
         if not (contributing_mac or contributing_ilu):
             continue
         if contributing_mac:
             highlights[line_num] = 0, -1
-            external_inputs -= mac_outputs
-            external_inputs |= ins_ins.get("mac", set())
+            _register_dict_subtract(step_inputs, mac_outputs)
+            _merge_register_dict_into(step_inputs, ins_ins.get("mac", {}))
 
         if contributing_ilu:
             highlights[line_num] = 0, -1
-            external_inputs -= ilu_outputs
-            external_inputs |= ins_ins.get("ilu", set())
+            _register_dict_subtract(step_inputs, ilu_outputs)
+            _merge_register_dict_into(step_inputs, ins_ins.get("ilu", {}))
 
-    return highlights, external_inputs
+    return highlights, step_inputs
 
 
 class _Editor:
@@ -139,8 +214,8 @@ class _Editor:
 
         # State for ancestor highlighting.
         self._highlights: dict = {}
-        self._highlighted_inputs: Set[str] = set()
-        self._used_inputs: Set[str] = set()
+        self._highlighted_inputs: RegisterDictT = {}
+        self._used_inputs: RegisterDictT = {}
 
     def set_source(self, source: List[Tuple[str, dict]]):
         """Sets the source code in this editor to the given list of (text, instruction_info) tuples."""
@@ -153,7 +228,7 @@ class _Editor:
     def export(self, filename: str, input_resolver):
         with open(filename, "w", encoding="ascii") as outfile:
             print("; Inputs:", file=outfile)
-            for input in sorted(self._active_inputs):
+            for input in sorted(self._active_inputs.keys()):
                 value = ""
                 if input_resolver:
                     value = f" = {input_resolver(input)}"
@@ -236,11 +311,13 @@ class _Editor:
         source_region_name = f"{target.name}#src"
         inputs_region_name = f"{target.name}#inputs"
 
-        inputs = textwrap.fill(", ".join(sorted(self._active_inputs)), visible_columns)
+        inputs = textwrap.fill(
+            ", ".join(sorted(self._active_inputs.keys())), visible_columns
+        )
         num_input_lines = inputs.count("\n") + 1
 
         input = Text(inputs)
-        input.highlight_words(self._highlighted_inputs, "bold italic blue")
+        input.highlight_words(self._highlighted_inputs.keys(), "bold italic blue")
 
         target.split_column(
             Layout(name=source_region_name),
@@ -290,7 +367,7 @@ class _Editor:
         root[f"{target.name}#src#content"].update(get_source())
 
     @property
-    def _active_inputs(self) -> Set[str]:
+    def _active_inputs(self) -> RegisterDictT:
         return (
             self._highlighted_inputs
             if self._filter_untagged_rows
@@ -312,7 +389,7 @@ class _Editor:
         elements = []
         if self._ancestors_row == row:
             elements.append("=")
-        elif row in self._highlights:
+        elif row in self._highlights and self._ancestors_row >= 0:
             elements.append("A" if self._filter_untagged_rows else "a")
         if self._data_cursor_row == row:
             elements.append(">")
