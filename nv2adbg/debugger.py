@@ -3,6 +3,7 @@
 """Assembles nv2a vertex shader machine code."""
 
 import argparse
+import collections
 import csv
 import json
 import logging
@@ -10,7 +11,7 @@ import os
 import re
 import sys
 import textwrap
-from typing import Iterable, List, Set, Tuple
+from typing import Dict, Iterable, List, Set, Tuple
 
 import sshkeyboard
 
@@ -48,17 +49,17 @@ def _strip_register_name(element: str) -> str:
     return match.group(1)
 
 
-def _extract_register_names(ins: dict, key: str) -> Set[str]:
-    ret: Set[str] = set()
+def _extract_register_names(ins: dict, key: str) -> Dict[str, Set[str]]:
+    ret = collections.defaultdict(set)
     mac = ins.get("mac")
     if mac:
         for element in mac[key]:
-            ret.add(_strip_register_name(element))
+            ret["mac"].add(_strip_register_name(element))
 
     ilu = ins.get("ilu")
     if ilu:
         for element in ilu[key]:
-            ret.add(_strip_register_name(element))
+            ret["ilu"].add(_strip_register_name(element))
     return ret
 
 
@@ -69,11 +70,15 @@ def _discover_inputs(source: List[Tuple[int, Tuple[str, dict]]]) -> Set[str]:
 
     for _, (_, instruction_dict) in source:
         ins_in = _extract_register_names(instruction_dict, "inputs")
-        if "R12" in ins_in:
-            ins_in.remove("R12")
-            ins_in.add("oPos")
-        ret |= ins_in.difference(outputs)
-        outputs |= _extract_register_names(instruction_dict, "outputs")
+        flat_ins = ins_in.get("mac", set()) | ins_in.get("ilu", set())
+        if "R12" in flat_ins:
+            flat_ins.remove("R12")
+            flat_ins.add("oPos")
+        ret |= flat_ins.difference(outputs)
+
+        ins_outs = _extract_register_names(instruction_dict, "outputs")
+        outputs |= ins_outs.get("mac", set())
+        outputs |= ins_outs.get("ilu", set())
 
     return ret
 
@@ -89,19 +94,31 @@ def _find_ancestors(
     source.reverse()
     instruction_dict = source[0][1][1]
 
-    inputs = _extract_register_names(instruction_dict, "inputs")
+    external_inputs = _extract_register_names(instruction_dict, "inputs")
+    external_inputs = external_inputs.get("mac", set()) | external_inputs.get(
+        "ilu", set()
+    )
     highlights = {}
     for line_num, (_, instruction_dict) in source[1:]:
-        outputs = _extract_register_names(instruction_dict, "outputs")
-        contributing = outputs.intersection(inputs)
-        if not contributing:
+        ins_outs = _extract_register_names(instruction_dict, "outputs")
+        ins_ins = _extract_register_names(instruction_dict, "inputs")
+        mac_outputs = ins_outs.get("mac", set())
+        ilu_outputs = ins_outs.get("ilu", set())
+        contributing_mac = mac_outputs.intersection(external_inputs)
+        contributing_ilu = ilu_outputs.intersection(external_inputs)
+        if not (contributing_mac or contributing_ilu):
             continue
+        if contributing_mac:
+            highlights[line_num] = 0, -1
+            external_inputs -= mac_outputs
+            external_inputs |= ins_ins.get("mac", set())
 
-        highlights[line_num] = 0, -1
-        inputs -= outputs
-        inputs |= _extract_register_names(instruction_dict, "inputs")
+        if contributing_ilu:
+            highlights[line_num] = 0, -1
+            external_inputs -= ilu_outputs
+            external_inputs |= ins_ins.get("ilu", set())
 
-    return highlights, inputs
+    return highlights, external_inputs
 
 
 class _Editor:
