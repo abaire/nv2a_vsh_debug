@@ -669,7 +669,12 @@ def _main(args):
 
         with open(args.source, encoding="utf-8") as infile:
             source = infile.read()
-        shader.set_source(source)
+        errors = shader.set_source(source)
+        if errors:
+            print(f"Assembly failed due to errors in {args.source}:", file=sys.stderr)
+            for message in errors:
+                print(f"{args.source}:{message}", file=sys.stderr)
+            return 2
         shader_trace = shader.explain()
 
     if args.json:

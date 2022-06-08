@@ -472,13 +472,17 @@ class Shader:
         self._instructions = []
         self._input_context = Context()
 
-    def set_source(self, source_code: str):
+    def set_source(self, source_code: str) -> List[str]:
         """Sets the source code for this shader."""
-        machine_code = nv2avsh.assemble.assemble(source_code)
+        machine_code, errors = nv2avsh.assemble.assemble(source_code)
+        if errors:
+            return [f"{error.line}:{error.column}: {error.message}" for error in errors]
+
         self._instructions = nv2avsh.disassemble.disassemble_to_instructions(
             machine_code
         )
         self._reformatted_source = nv2avsh.disassemble.disassemble(machine_code, False)
+        return []
 
     def set_initial_state(self, state: dict):
         """Sets the initial register state for this shader."""
