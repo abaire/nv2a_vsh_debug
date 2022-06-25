@@ -13,3 +13,6 @@ dist/
 
 *.pyc
 export*.vsh
+
+/*.so
+nv2adbg/*.so

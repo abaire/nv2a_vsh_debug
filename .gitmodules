@@ -1,0 +1,3 @@
+[submodule "thirdparty/nv2a_vsh_cpu"]
+	path = thirdparty/nv2a_vsh_cpu
+	url = https://github.com/abaire/nv2a_vsh_cpu.git
