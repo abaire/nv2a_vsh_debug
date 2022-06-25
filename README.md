@@ -25,3 +25,24 @@ The UI is divided into two sections, the top menu and the source window. You can
 
 * You can convert the contents of a [xemu](https://github.com/mborgerson/xemu) vertex shader using [RenderDoc](https://renderdoc.org/) to examine the draw and running it through https://github.com/abaire/renderdoc_util/blob/main/util/xemu_shader_to_nv2a.py to sanitize it.
 * You can set initial values with csv dumps from RenderDoc (use `-h` to see the appropriate commands, the mesh view will have the input register values and you can expand the uniforms in the pipeline view to get the constant registers)
+
+# Example output
+```
+ File    Export                                                                                                                                                                                                                            
+*  0 a  MUL R6, v1, c[121]                                                                                                                                                                                                                 
+   1    MUL R4, v3, c[120]                                                                                                                                                                                                                 
+   2    DP4 R5.x, R6, c[128] + MOV oD0.w, v0.w                                                                                                                                                                                             
+   3 >  DP4 R5.y, R6, c[129]                                                                                                                                                                                                               
+   4    DP4 R5.z, R6, c[130]                                                                                                                                                                                                               
+   5    DP4 R5.w, R6, c[131]                                                                                                                                                                                                               
+   6 =  ADD R11.xyz, R6.xyz, -c[136].xyz                                                                                                                                                                                                   
+   7    ADD R10.yzw, R6.yzx, -c[137].yzx                                                                                                                                                                                                   
+   8    MUL R2.xyz, R11.xyz, R11.xyz                                                                                                                                                                                                       
+   9    DP3 R2.x, c[135].z, R2.xyz                                                                                                                                                                                                         
+  10    MUL R2.yzw, R10.yzw, R10.yzw                                                                                                                                                                                                       
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ R1, R15, R3, c[100], c[101], c[102], c[103], c[104], c[105], c[106], c[107], c[108], c[109], c[110], c[111], c[112], c[113], c[114], c[115], c[120], c[121], c[128], c[129], c[130], c[131], c[135], c[136], c[137], c[138], c[139],      
+ c[140], c[141], c[142], c[143], c[144], c[145], c[146], c[147], c[58], c[59], c[96], c[97], c[98], c[99], v0, v1, v3                                                                                                                      
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Result: R5.y: -993.2607421875, 1464.3172607421875, 0.0, 0.0     
+ ```
