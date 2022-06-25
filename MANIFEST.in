@@ -1,0 +1,2 @@
+include build_cffi.py
+graft thirdparty/nv2a_vsh_cpu
