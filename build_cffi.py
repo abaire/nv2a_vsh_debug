@@ -32,7 +32,15 @@ class FfiPreBuildExtension(build_ext):
             cmake_build_args += ["--config", "Release"]
 
         subprocess.check_call(
-            ["cmake", "-B", "build", "-S", NV2A_VSH_CPU_DIR] + cmake_config_args,
+            [
+                "cmake",
+                "-B",
+                "build",
+                "-S",
+                NV2A_VSH_CPU_DIR,
+                "-Dnv2a_vsh_cpu_UNIT_TEST=OFF",
+            ]
+            + cmake_config_args,
             cwd=ROOT_DIR,
         )
         subprocess.check_call(
