@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import glob
 import os.path
+import shutil
 import struct
 import subprocess
 import platform
@@ -24,6 +26,8 @@ class FfiPreBuildExtension(build_ext):
 
         cmake_config_args = [
             "-DCMAKE_VERBOSE_MAKEFILE:BOOL=ON",
+            "-Dnv2a_vsh_cpu_UNIT_TEST:BOOL=OFF",
+            "-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON",
         ]
         cmake_build_args = []
         if platform.system() == "Windows":
@@ -38,7 +42,6 @@ class FfiPreBuildExtension(build_ext):
                 "build",
                 "-S",
                 NV2A_VSH_CPU_DIR,
-                "-Dnv2a_vsh_cpu_UNIT_TEST=OFF",
             ]
             + cmake_config_args,
             cwd=ROOT_DIR,
