@@ -200,6 +200,42 @@ def _find_ancestors(
     return highlights, step_inputs
 
 
+_WRITEMASK = {
+    "x": 0,
+    "y": 1,
+    "z": 2,
+    "w": 3,
+}
+
+
+def _extract_output(register, active_state) -> Tuple[Tuple[float], List[int]]:
+    """Returns ((register_value), [modified_indices])"""
+    components = register.split(".")
+    if components[0] == "a0":
+        return active_state["address"]
+
+    if len(components) > 1:
+        writemask = [_WRITEMASK[item] for item in components[1]]
+    else:
+        writemask = [0, 1, 2, 3]
+
+    def fetch(regname, reg_set):
+        for reg in reg_set:
+            if reg[0] == regname:
+                return (tuple(reg[1:]), writemask)
+        raise Exception(f"Failed to retrieve register {regname}")
+
+    if register[0] == "c":
+        return fetch(components[0], active_state["constant"])
+    if register[0] == "R":
+        return fetch(components[0], active_state["temp"])
+    if register[0] == "o":
+        reg_name = f"o{simulator.OUTPUT_TO_INDEX[components[0]]}"
+        return fetch(reg_name, active_state["output"])
+
+    raise Exception(f"Invalid register: {register}")
+
+
 class _Editor:
     def __init__(self):
         self._scroll_start: int = 0
@@ -207,6 +243,7 @@ class _Editor:
         self._cursor_pos_col: int = 0
         self._ancestors_row: int = -1
         self._source: List[Tuple[int, Tuple[str, dict]]] = []
+        self._show_outputs = True
 
         self._filtered_source: List[Tuple[int, Tuple[str, dict]]] = []
         self._filter_untagged_rows = False
@@ -217,9 +254,10 @@ class _Editor:
         self._highlighted_inputs: RegisterDictT = {}
         self._used_inputs: RegisterDictT = {}
 
-    def set_source(self, source: List[Tuple[str, dict]]):
+    def set_source(self, source: List[Tuple[str, dict]], states: List[dict]):
         """Sets the source code in this editor to the given list of (text, instruction_info) tuples."""
         self._source = list(enumerate(source))
+        self._states = states
         self._used_inputs = _discover_inputs(self._source)
         self._highlights.clear()
         self._highlighted_inputs.clear()
@@ -292,12 +330,35 @@ class _Editor:
             )
             self._update_filter()
 
+    def toggle_output_display(self):
+        self._show_outputs = not self._show_outputs
+
     def toggle_instruction_ancestors(self):
         """Toggles highlighting of instructions that mutate the arguments of the current instruction."""
         if self._ancestors_row == self._data_cursor_row:
             self.show_instruction_ancestors = False
             return
         self.show_instruction_ancestors = True
+
+    @staticmethod
+    def build_output_line(outs):
+        elements = [("Result: ", "bold")]
+        prefix = ""
+        for key in sorted(outs.keys()):
+            elements.append(f"{prefix}{key}: ")
+            prefix = "; "
+
+            val_prefix = ""
+            vals, modified = outs[key]
+            for index, val in enumerate(vals):
+                elements.append(val_prefix)
+                val_prefix = ", "
+                if index in modified:
+                    elements.append((f"{val}", "bold underline bright_green"))
+                else:
+                    elements.append(f"{val}")
+
+        return Text.assemble(*elements)
 
     def render(self, con: console.Console, root: Layout, target_name: str):
         """Renders this editor instance to the given Console with the given root Layout."""
@@ -310,18 +371,27 @@ class _Editor:
 
         source_region_name = f"{target.name}#src"
         inputs_region_name = f"{target.name}#inputs"
+        outputs_region_name = f"{target.name}#outputs"
 
         inputs = textwrap.fill(
             ", ".join(sorted(self._active_inputs.keys())), visible_columns
         )
         num_input_lines = inputs.count("\n") + 1
 
+        outs = self._active_outputs
+        reg_states = [f"{k}: {outs[k][0]}" for k in sorted(outs.keys())]
+        outputs = textwrap.fill("Result: " + "; ".join(reg_states), visible_columns)
+        num_output_lines = outputs.count("\n") + 1
+
         input = Text(inputs)
-        input.highlight_words(self._highlighted_inputs.keys(), "bold italic blue")
+        input.highlight_words(
+            self._highlighted_inputs.keys(), "bold italic bright_blue"
+        )
 
         target.split_column(
             Layout(name=source_region_name),
             Layout(name=inputs_region_name, size=num_input_lines + 1),
+            Layout(name=outputs_region_name, size=num_output_lines + 1),
         )
 
         if not self._active_inputs:
@@ -332,6 +402,15 @@ class _Editor:
                 Layout(input),
             )
             visible_rows -= num_input_lines + 1
+
+        target[outputs_region_name].visible = self._show_outputs
+        if self._show_outputs:
+            output = self.build_output_line(outs)
+            target[outputs_region_name].split_column(
+                Layout(Rule(), size=1),
+                Layout(output),
+            )
+            visible_rows -= num_output_lines + 1
 
         middle_row = visible_rows // 2
         active_source_len = len(self._active_source)
@@ -375,6 +454,29 @@ class _Editor:
         )
 
     @property
+    def _active_outputs(self) -> Dict[str, Tuple[Tuple[float], List[int]]]:
+        """Returns a dictionary with the outputs of the active cursor."""
+        if not self._source:
+            return {}
+
+        _, (_, active_step) = self._source[self._data_cursor_row]
+        active_state = self._states[self._data_cursor_row]
+
+        ret = {}
+
+        def process(op):
+            for output in op["outputs"]:
+                ret[output] = _extract_output(output, active_state)
+
+        mac = active_step.get("mac")
+        if mac:
+            process(mac)
+        ilu = active_step.get("ilu")
+        if ilu:
+            process(ilu)
+        return ret
+
+    @property
     def _active_source(self) -> List[Tuple[int, Tuple[str, dict]]]:
         return self._filtered_source if self._filter_untagged_rows else self._source
 
@@ -414,7 +516,6 @@ class _Editor:
 class _App:
     _MENU = "menu"
     _SOURCE = "source"
-    _CONTEXT = "context"
 
     def __init__(self, shader: simulator.Shader, shader_trace: dict):
         self._shader = shader
@@ -424,7 +525,6 @@ class _App:
         self._editor = _Editor()
         self._active_layout = self._SOURCE if shader_trace else self._MENU
 
-        self._context_start = 0
         self._running = False
 
         self._update()
@@ -435,13 +535,13 @@ class _App:
             "": self._create_global_keymap(),
             self._MENU: self._create_menu_keymap(),
             self._SOURCE: self._create_source_keymap(),
-            self._CONTEXT: self._create_context_keymap(),
         }
 
     def set_shader_trace(self, shader_trace: dict):
         steps = shader_trace["steps"]
         self._editor.set_source(
-            [(step["source"], step["instruction"]) for step in steps]
+            [(step["source"], step["instruction"]) for step in steps],
+            [step["state"] for step in steps],
         )
         self._update()
 
@@ -455,7 +555,6 @@ class _App:
             "1": lambda: _gen_focus(self._MENU),
             "f2": lambda: _gen_focus(self._SOURCE),
             "2": lambda: _gen_focus(self._SOURCE),
-            # "f3": lambda: _gen_focus(self._CONTEXT),
         }
 
     def _export(self):
@@ -495,6 +594,10 @@ class _App:
             self._editor.filter_untagged_rows = not self._editor.filter_untagged_rows
             sshkeyboard.stop_listening()
 
+        def toggle_output_display():
+            self._editor.toggle_output_display()
+            sshkeyboard.stop_listening()
+
         return {
             "up": lambda: navigate(-1),
             "down": lambda: navigate(1),
@@ -504,15 +607,12 @@ class _App:
             "end": lambda: navigate(1000000000),
             "a": toggle_ancestors,
             "f": toggle_filtering,
+            "o": toggle_output_display,
         }
-
-    def _create_context_keymap(self):
-        return {}
 
     def _activate_section(self, target):
         self._active_layout = target
 
-        # for section in [self._MENU, self._SOURCE, self._CONTEXT]:
         for section in [self._MENU, self._SOURCE]:
 
             def content():
@@ -530,8 +630,6 @@ class _App:
         self._root.split_column(
             Layout(name=self._MENU, size=1),
             Layout(name=self._SOURCE),
-            # Layout(name="#rule", size=1),
-            # Layout(name=self._CONTEXT),
         )
 
         self._root[self._MENU].split_row(
@@ -544,22 +642,8 @@ class _App:
             Layout(name=f"{self._SOURCE}#content"),
         )
 
-        # self._root["#rule"].update(Rule())
-
-        # self._root[self._CONTEXT].split_row(
-        #     Layout(name=f"{self._CONTEXT}#active", size=1),
-        #     Layout(name=f"{self._CONTEXT}#content"),
-        #     Layout(name=f"{self._CONTEXT}#scrollbar", size=1),
-        # )
-        #
-        # self._root[f"{self._CONTEXT}#content"].split_row(
-        #     Layout(name=f"{self._CONTEXT}#content#left"),
-        #     Layout(name=f"{self._CONTEXT}#content#right"),
-        # )
-
         self._update_menu()
         self._update_source()
-        # self._update_context()
         self._activate_section(self._active_layout)
 
     def _update_menu(self):
@@ -580,30 +664,6 @@ class _App:
 
     def _update_source(self):
         self._editor.render(self._console, self._root, f"{self._SOURCE}#content")
-
-    # def _update_context(self):
-    #     registers = self._context.registers
-    #     num_items = len(registers)
-    #
-    #     left = self._root[f"{self._CONTEXT}#content#left"]
-    #     right = self._root[f"{self._CONTEXT}#content#right"]
-    #     right.visible = False
-    #     render_map = self._root.render(self._console, self._console.options)
-    #
-    #     region = render_map[left].region
-    #     max_width = region.width
-    #
-    #     last_item = min(num_items, self._context_start + region.height)
-    #
-    #     @console.group()
-    #     def get_registers():
-    #         for reg in registers[self._context_start : last_item]:
-    #             yield Text.assemble(
-    #                 (f"{reg.name:>5}", "cyan"),
-    #                 f" {reg.x:f}, {reg.y:f}, {reg.z:f}, {reg.w:f}",
-    #             )
-    #
-    #     self._root[f"{self._CONTEXT}#content#left"].update(get_registers())
 
     def render(self):
         """Draws the application to the console."""

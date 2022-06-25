@@ -19,7 +19,7 @@ The UI is divided into two sections, the top menu and the source window. You can
    At the time of this writing there is no way to choose between the MAC and ILU component of a paired command, both will be traced. If you only care about one or the other, the best option is to go to the first ancestor that contributes solely to the one you care about and do the trace from there.
 
 * Pressing "f" with ancestor tracking enabled will filter out all of the lines that do not contribute to the instruction being traced. Press "f" again to return to full source view.
-
+* "o" will toggle the display of the outputs of the selected line.
 
 # Helpful hints
 

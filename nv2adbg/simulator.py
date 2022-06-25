@@ -4,32 +4,18 @@ from typing import Any, List, Tuple
 
 import nv2avsh
 
-_OUTPUTS = [
-    "oPos",
-    "oD0",
-    "oD1",
-    "oFog",
-    "oPts",
-    "oB0",
-    "oB1",
-    "oT0",
-    "oT1",
-    "oT2",
-    "oT3",
-]
-
-_OUTPUT_TO_INDEX = {
+OUTPUT_TO_INDEX = {
     "oPos": 0,
-    "oD0": 1,
-    "oD1": 2,
-    "oFog": 3,
-    "oPts": 4,
-    "oB0": 5,
-    "oB1": 6,
-    "oT0": 7,
-    "oT1": 8,
-    "oT2": 9,
-    "oT3": 10,
+    "oD0": 3,
+    "oD1": 4,
+    "oFog": 5,
+    "oPts": 6,
+    "oB0": 7,
+    "oB1": 8,
+    "oT0": 9,
+    "oT1": 10,
+    "oT2": 11,
+    "oT3": 12,
 }
 
 
