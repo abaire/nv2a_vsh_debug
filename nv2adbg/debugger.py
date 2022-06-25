@@ -21,7 +21,7 @@ from rich.layout import Layout
 from rich.rule import Rule
 from rich.text import Text
 
-import simulator
+from nv2adbg import simulator
 
 # Mapping of register name to a set of the masked components
 RegisterDictT = Dict[str, Set[str]]
