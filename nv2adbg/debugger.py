@@ -11,13 +11,14 @@ import os
 import re
 import sys
 import textwrap
-from typing import Dict, Iterable, List, Set, Tuple
+from typing import Dict, Iterable, List, Set, Tuple, Union
 
 import sshkeyboard
 
 import rich
 from rich import console
 from rich.layout import Layout
+from rich.prompt import Prompt
 from rich.rule import Rule
 from rich.text import Text
 
@@ -236,6 +237,105 @@ def _extract_output(register, active_state) -> Tuple[Tuple[float], List[int]]:
     raise Exception(f"Invalid register: {register}")
 
 
+class _ShaderProgram:
+    def __init__(
+        self, source_file, inputs_json_file, renderdoc_mesh_csv, renderdoc_constants_csv
+    ):
+        self._shader = None
+        self._shader_trace = {}
+        self._source_file = source_file
+        self.inputs_file = inputs_json_file
+        self.mesh_inputs_file = renderdoc_mesh_csv
+        self.constants_file = renderdoc_constants_csv
+        self.source_file = source_file
+
+        self.build_shader()
+
+    @property
+    def loaded(self) -> bool:
+        return bool(self._source_file)
+
+    @property
+    def shader(self) -> simulator.Shader:
+        return self._shader
+
+    @property
+    def shader_trace(self) -> dict:
+        return self._shader_trace
+
+    @property
+    def source_file(self) -> str:
+        return self._source_file
+
+    @source_file.setter
+    def source_file(self, val: str):
+        self._source_file = val
+        if val:
+            with open(val, encoding="utf-8") as infile:
+                self._source_code = infile.read()
+        else:
+            self._source_code = ""
+
+    @property
+    def inputs_file(self) -> str:
+        return self._inputs_json_file
+
+    @inputs_file.setter
+    def inputs_file(self, val: str):
+        self._inputs_json_file = val
+        if val:
+            with open(val, encoding="ascii") as infile:
+                self._inputs = json.load(infile)
+        else:
+            self._inputs = {}
+
+    @property
+    def mesh_inputs_file(self) -> str:
+        return self._renderdoc_mesh_csv
+
+    @mesh_inputs_file.setter
+    def mesh_inputs_file(self, val: str):
+        self._renderdoc_mesh_csv = val
+        self._mesh = []
+        if val:
+            with open(val, newline="", encoding="ascii") as csvfile:
+                reader = csv.DictReader(csvfile)
+                row = next(reader)
+                row = {key.strip(): val.strip() for key, val in row.items()}
+                self._mesh.append(row)
+
+    @property
+    def constants_file(self) -> str:
+        return self._renderdoc_constants_csv
+
+    @constants_file.setter
+    def constants_file(self, val: str):
+        self._renderdoc_constants_csv = val
+        if val:
+            with open(val, newline="", encoding="ascii") as csvfile:
+                self._constants = list(csv.DictReader(csvfile))
+        else:
+            self._constants = []
+
+    def build_shader(self):
+        self._shader = simulator.Shader()
+        self._shader.set_initial_state(self._inputs)
+
+        for row in self._mesh:
+            _merge_inputs(row, self._shader)
+
+        if self._constants:
+            _merge_constants(self._constants, self._shader)
+
+        errors = self._shader.set_source(self._source_code)
+        if errors:
+            error_messsage = [f"Assembly failed due to errors in {self._source_code}:"]
+            error_messsage.extend(errors)
+            raise Exception("\n".join(error_messsage))
+
+        self._shader_trace = self._shader.explain()
+
+
 class _Editor:
     def __init__(self):
         self._scroll_start: int = 0
@@ -253,6 +353,13 @@ class _Editor:
         self._highlights: dict = {}
         self._highlighted_inputs: RegisterDictT = {}
         self._used_inputs: RegisterDictT = {}
+
+    def clear(self):
+        self._source = []
+        self._states = []
+        self._used_inputs = {}
+        self._highlights.clear()
+        self._update_filter()
 
     def set_source(self, source: List[Tuple[str, dict]], states: List[dict]):
         """Sets the source code in this editor to the given list of (text, instruction_info) tuples."""
@@ -513,48 +620,151 @@ class _Editor:
         line.stylize(" ".join(style))
 
 
+class _FileMenu:
+    """Renders the file input menu."""
+
+    def __init__(self, program: _ShaderProgram):
+        self._program = program
+        self._cursor_pos = 0
+        self._entries = []
+        self._entry_titles = [
+            " Source             ",
+            " Inputs             ",
+            " Renderdoc Inputs   ",
+            " Renderdoc Constants",
+        ]
+        self._active_prompt = None
+        self._reset_values()
+        self._update_entries()
+
+    def navigate(self, delta: int):
+        self._cursor_pos = (self._cursor_pos + delta) % len(self._entries)
+
+    def activate(self):
+        if self._cursor_pos == len(self._entries) - 2:
+            self._program.source_file = self._values[0]
+            self._program.inputs_file = self._values[1]
+            self._program.mesh_inputs_file = self._values[2]
+            self._program.constants_file = self._values[3]
+            return True
+
+        if self._cursor_pos == len(self._entries) - 1:
+            self._reset_values()
+        else:
+            self._active_prompt = self._entry_titles[self._cursor_pos]
+
+        return False
+
+    def _reset_values(self):
+        self._values = [
+            self._program.source_file,
+            self._program.inputs_file,
+            self._program.mesh_inputs_file,
+            self._program.constants_file,
+        ]
+
+    def _process_input(self, value: str):
+        if not value:
+            return
+        self._values[self._cursor_pos] = value
+
+    def render(self, con: console.Console, root: Layout, target_name: str):
+        """Renders this file menu instance to the given Console with the given root Layout."""
+        render_map = root.render(con, con.options)
+
+        target = root[target_name]
+        region = render_map[target].region
+
+        if self._active_prompt:
+            con.clear()
+            value = Prompt.ask(self._active_prompt, console=con)
+            self._process_input(value)
+            self._active_prompt = None
+            con.clear()
+
+        self._update_entries()
+
+        def _build(index, value) -> Union[str, Tuple[str, str]]:
+            if index == self._cursor_pos:
+                return value, "bold"
+            return value
+
+        entries = [
+            Layout(Text.assemble(_build(i, v)), size=1)
+            for i, v in enumerate(self._entries)
+        ]
+
+        target.split_column(*entries)
+
+    def _update_entries(self):
+        self._entries = [
+            f"{title}: {value}"
+            for title, value in zip(self._entry_titles, self._values)
+        ]
+        self._entries.extend(
+            [
+                "<Apply>",
+                "<Reset>",
+            ]
+        )
+
+
 class _App:
     _MENU = "menu"
-    _SOURCE = "source"
+    _CONTENT = "content"
 
-    def __init__(self, shader: simulator.Shader, shader_trace: dict):
-        self._shader = shader
+    def __init__(self, program: _ShaderProgram):
+        self._program = program
         self._console = console.Console()
         self._shader_trace: dict = {}
         self._root = Layout()
         self._editor = _Editor()
-        self._active_layout = self._SOURCE if shader_trace else self._MENU
+        self._file_menu = _FileMenu(program)
+        self._active_layout = self._CONTENT
+        self._active_content = self._editor if program.loaded else self._file_menu
 
         self._running = False
 
         self._update()
 
-        self.set_shader_trace(shader_trace)
+        self.set_shader_trace(program.shader_trace)
 
         self._keymaps = {
             "": self._create_global_keymap(),
             self._MENU: self._create_menu_keymap(),
-            self._SOURCE: self._create_source_keymap(),
+            self._CONTENT: self._create_editor_keymap()
+            if program.loaded
+            else self._create_file_menu_keymap(),
         }
 
+    def _activate_program(self):
+        if not self._program.loaded:
+            return
+        self._program.build_shader()
+        self.set_shader_trace(self._program.shader_trace)
+        self._keymaps[self._CONTENT] = self._create_editor_keymap()
+        self._active_content = self._editor
+
     def set_shader_trace(self, shader_trace: dict):
-        steps = shader_trace["steps"]
-        self._editor.set_source(
-            [(step["source"], step["instruction"]) for step in steps],
-            [step["state"] for step in steps],
-        )
+        if not shader_trace:
+            self._editor.clear()
+        else:
+            steps = shader_trace["steps"]
+            self._editor.set_source(
+                [(step["source"], step["instruction"]) for step in steps],
+                [step["state"] for step in steps],
+            )
         self._update()
 
     def _create_global_keymap(self):
         def _gen_focus(target):
             self._activate_section(target)
-            sshkeyboard.stop_listening()
 
         return {
             "f1": lambda: _gen_focus(self._MENU),
             "1": lambda: _gen_focus(self._MENU),
-            "f2": lambda: _gen_focus(self._SOURCE),
-            "2": lambda: _gen_focus(self._SOURCE),
+            "f2": lambda: _gen_focus(self._CONTENT),
+            "2": lambda: _gen_focus(self._CONTENT),
         }
 
     def _export(self):
@@ -568,35 +778,31 @@ class _App:
             raise Exception("Failed to find an unused export filename.")
 
         def resolve(input):
-            return self._shader.initial_state.get(input)
+            return self._program.shader.initial_state.get(input)
 
         self._editor.export(filename, resolve)
 
     def _create_menu_keymap(self):
+        def handle_export():
+            self._export()
+            self._active_layout = self._CONTENT
+
         def handle_file():
-            pass
+            self._active_layout = self._CONTENT
+            self._active_content = self._file_menu
+            self._keymaps[self._CONTENT] = self._create_file_menu_keymap()
 
         return {
             "f": handle_file,
-            "e": self._export,
+            "e": handle_export(),
         }
 
-    def _create_source_keymap(self):
+    def _create_editor_keymap(self):
         def navigate(delta: int):
             self._editor.navigate(delta)
-            sshkeyboard.stop_listening()
-
-        def toggle_ancestors():
-            self._editor.toggle_instruction_ancestors()
-            sshkeyboard.stop_listening()
 
         def toggle_filtering():
             self._editor.filter_untagged_rows = not self._editor.filter_untagged_rows
-            sshkeyboard.stop_listening()
-
-        def toggle_output_display():
-            self._editor.toggle_output_display()
-            sshkeyboard.stop_listening()
 
         return {
             "up": lambda: navigate(-1),
@@ -605,15 +811,30 @@ class _App:
             "pagedown": lambda: navigate(5),
             "home": lambda: navigate(-1000000000),
             "end": lambda: navigate(1000000000),
-            "a": toggle_ancestors,
+            "a": self._editor.toggle_instruction_ancestors,
             "f": toggle_filtering,
-            "o": toggle_output_display,
+            "o": self._editor.toggle_output_display,
+        }
+
+    def _create_file_menu_keymap(self):
+        def navigate(delta: int):
+            self._file_menu.navigate(delta)
+
+        def activate():
+            if self._file_menu.activate():
+                self._activate_program()
+
+        return {
+            "up": lambda: navigate(-1),
+            "down": lambda: navigate(1),
+            "enter": activate,
+            "tab": activate,
         }
 
     def _activate_section(self, target):
         self._active_layout = target
 
-        for section in [self._MENU, self._SOURCE]:
+        for section in [self._MENU, self._CONTENT]:
 
             def content():
                 if self._active_layout == section:
@@ -629,7 +850,7 @@ class _App:
     def _update(self):
         self._root.split_column(
             Layout(name=self._MENU, size=1),
-            Layout(name=self._SOURCE),
+            Layout(name=self._CONTENT),
         )
 
         self._root[self._MENU].split_row(
@@ -637,13 +858,15 @@ class _App:
             Layout(name=f"{self._MENU}#content"),
         )
 
-        self._root[self._SOURCE].split_row(
-            Layout(name=f"{self._SOURCE}#active", size=1),
-            Layout(name=f"{self._SOURCE}#content"),
+        self._root[self._CONTENT].split_row(
+            Layout(name=f"{self._CONTENT}#active", size=1),
+            Layout(name=f"{self._CONTENT}#content"),
         )
 
         self._update_menu()
-        self._update_source()
+        self._active_content.render(
+            self._console, self._root, f"{self._CONTENT}#content"
+        )
         self._activate_section(self._active_layout)
 
     def _update_menu(self):
@@ -662,9 +885,6 @@ class _App:
 
         self._root[f"{self._MENU}#content"].update(content())
 
-    def _update_source(self):
-        self._editor.render(self._console, self._root, f"{self._SOURCE}#content")
-
     def render(self):
         """Draws the application to the console."""
         rich.print(self._root)
@@ -672,7 +892,7 @@ class _App:
     def _handle_key(self, key):
         if key == "esc" or key == "q":
             self._running = False
-            sshkeyboard.stop_listening()
+            return
 
         keymap = self._active_keymap
         action = keymap.get(key, None)
@@ -687,13 +907,28 @@ class _App:
         print(f"Unhandled key {key}")
 
     def run(self):
+
+        input_queue = []
+
+        def handle_key(key):
+            input_queue.append(key)
+            sshkeyboard.stop_listening()
+
         self._running = True
         with self._console.screen() as screen:
             screen.update(self._root)
 
             try:
                 while self._running:
-                    sshkeyboard.listen_keyboard(on_press=self._handle_key, until=None)
+                    input_queue.clear()
+                    sshkeyboard.listen_keyboard(
+                        on_press=handle_key,
+                        until=None,
+                        sequential=True,
+                        delay_second_char=10,
+                    )
+                    for key in input_queue:
+                        self._handle_key(key)
                     if self._running:
                         self._update()
                         screen.update(self._root)
@@ -759,66 +994,36 @@ def _main(args):
         _emit_input_template()
         return 0
 
-    inputs = {}
-    if args.inputs:
-        if not os.path.isfile(args.inputs):
-            print(
-                f"Failed to open input definition file '{args.inputs}'", file=sys.stderr
-            )
-            return 1
-        with open(args.inputs, encoding="ascii") as infile:
-            inputs = json.load(infile)
+    if args.inputs and not os.path.isfile(args.inputs):
+        print(f"Failed to open input definition file '{args.inputs}'", file=sys.stderr)
+        return 1
+    if args.renderdoc_mesh and not os.path.isfile(args.renderdoc_mesh):
+        print(
+            f"Failed to open RenderDoc input definition file '{args.renderdoc_mesh}'",
+            file=sys.stderr,
+        )
+        return 1
 
-    shader = simulator.Shader()
-    shader.set_initial_state(inputs)
+    if args.renderdoc_constants and not os.path.isfile(args.renderdoc_constants):
+        print(
+            f"Failed to open RenderDoc constant definition file '{args.renderdoc_constants}'",
+            file=sys.stderr,
+        )
+        return 1
 
-    if args.renderdoc_mesh:
-        if not os.path.isfile(args.renderdoc_mesh):
-            print(
-                f"Failed to open RenderDoc input definition file '{args.renderdoc_mesh}'",
-                file=sys.stderr,
-            )
-            return 1
+    if args.source and not os.path.isfile(args.source):
+        print(f"Failed to open source file '{args.source}'", file=sys.stderr)
+        return 1
 
-        with open(args.renderdoc_mesh, newline="", encoding="ascii") as csvfile:
-            reader = csv.DictReader(csvfile)
-            row = next(reader)
-            row = {key.strip(): val.strip() for key, val in row.items()}
-            _merge_inputs(row, shader)
-
-    if args.renderdoc_constants:
-        if not os.path.isfile(args.renderdoc_constants):
-            print(
-                f"Failed to open RenderDoc constant definition file '{args.renderdoc_constants}'",
-                file=sys.stderr,
-            )
-            return 1
-
-        with open(args.renderdoc_constants, newline="", encoding="ascii") as csvfile:
-            reader = csv.DictReader(csvfile)
-            _merge_constants(reader, shader)
-
-    shader_trace = {}
-    if args.source:
-        if not os.path.isfile(args.source):
-            print(f"Failed to open source file '{args.source}'", file=sys.stderr)
-            return 1
-
-        with open(args.source, encoding="utf-8") as infile:
-            source = infile.read()
-        errors = shader.set_source(source)
-        if errors:
-            print(f"Assembly failed due to errors in {args.source}:", file=sys.stderr)
-            for message in errors:
-                print(f"{args.source}:{message}", file=sys.stderr)
-            return 2
-        shader_trace = shader.explain()
+    program = _ShaderProgram(
+        args.source, args.inputs, args.renderdoc_mesh, args.renderdoc_constants
+    )
 
     if args.json:
-        json.dump(shader_trace, sys.stdout, indent=2, sort_keys=True)
+        json.dump(program.shader_trace, sys.stdout, indent=2, sort_keys=True)
         return 0
 
-    app = _App(shader, shader_trace)
+    app = _App(program)
     app.run()
 
     return 0
