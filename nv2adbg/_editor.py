@@ -230,6 +230,19 @@ class _Editor:
 
         return Text.assemble(*elements)
 
+    def _build_mode_string(self):
+        active_modes = []
+        if self.show_instruction_ancestors:
+            active_modes.append("A")
+        if self._filter_untagged_rows:
+            active_modes.append("F")
+
+        if not active_modes:
+            return ""
+
+        mode_string = ",".join(active_modes)
+        return f" [{mode_string}]"
+
     def render(self, con: console.Console, root: Layout, target_name: str):
         """Renders this editor instance to the given Console with the given root Layout."""
         render_map = root.render(con, con.options)
@@ -245,16 +258,22 @@ class _Editor:
 
         source_region_name = f"{target.name}#src"
         inputs_region_name = f"{target.name}#inputs"
-        outputs_region_name = f"{target.name}#outputs"
+        bottom_region_name = f"{target.name}#bottomregion"
+        bottom_content_region_name = f"{bottom_region_name}#bottomcontent"
+        outputs_region_name = f"{bottom_content_region_name}#outputs"
 
         inputs = textwrap.fill(
             ", ".join(sorted(self._active_inputs.keys())), visible_columns
         )
         num_input_lines = inputs.count("\n") + 1
 
+        mode = self._build_mode_string()
+
         outs = self._active_outputs
         reg_states = [f"{k}: {outs[k][0]}" for k in sorted(outs.keys())]
-        outputs = textwrap.fill("Result: " + "; ".join(reg_states), visible_columns)
+        outputs = textwrap.fill(
+            "Result: " + "; ".join(reg_states), visible_columns - len(mode)
+        )
         num_output_lines = outputs.count("\n") + 1
 
         input = Text(inputs)
@@ -265,7 +284,7 @@ class _Editor:
         target.split_column(
             Layout(name=source_region_name),
             Layout(name=inputs_region_name, size=num_input_lines + 1),
-            Layout(name=outputs_region_name, size=num_output_lines + 1),
+            Layout(name=bottom_region_name, size=num_output_lines + 1),
         )
 
         if not self._active_inputs:
@@ -277,14 +296,25 @@ class _Editor:
             )
             visible_rows -= num_input_lines + 1
 
-        target[outputs_region_name].visible = self._show_outputs
+        target[bottom_region_name].split_column(
+            Layout(Rule(), size=1),
+            Layout(name=bottom_content_region_name),
+        )
+
+        target[bottom_content_region_name].split_row(
+            Layout(name=outputs_region_name, ratio=10000),
+            Layout(Text(mode), minimum_size=len(mode), visible=mode),
+        )
+
         if self._show_outputs:
             output = self.build_output_line(outs)
-            target[outputs_region_name].split_column(
-                Layout(Rule(), size=1),
-                Layout(output),
-            )
+            target[outputs_region_name].update(output)
             visible_rows -= num_output_lines + 1
+        elif mode:
+            target[outputs_region_name].update(" ")
+            visible_rows -= 2
+        else:
+            target[bottom_region_name].visible = False
 
         middle_row = visible_rows // 2
         active_source_len = len(self._active_source)
@@ -306,7 +336,7 @@ class _Editor:
             for line, _ in self._get_active_source_region(visible_rows):
                 yield Text(f"{line:>3}")
 
-        root[f"{target.name}#src#line"].update(get_line_numbers())
+        root[f"{source_region_name}#line"].update(get_line_numbers())
 
         @console.group()
         def get_source():
@@ -317,7 +347,7 @@ class _Editor:
                 self._stylize_line(line_num, ret)
                 yield ret
 
-        root[f"{target.name}#src#content"].update(get_source())
+        root[f"{source_region_name}#content"].update(get_source())
 
     @property
     def _active_inputs(self) -> RegisterDictT:
