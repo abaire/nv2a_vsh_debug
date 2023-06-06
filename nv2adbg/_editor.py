@@ -3,11 +3,15 @@
 import collections
 import re
 import textwrap
+from textwrap import dedent
 from typing import Dict, List, Set, Tuple
 
 from rich import console
+from rich.console import Group
 from rich.layout import Layout
+from rich.panel import Panel
 from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
 
 from nv2adbg import simulator
@@ -48,8 +52,13 @@ class _Editor:
         self._highlighted_inputs: RegisterDictT = {}
         self._used_inputs: RegisterDictT = {}
 
+        self._show_help = False
+
     def create_keymap(self) -> dict:
         """Creates a keymap suitable for use in the main application shell."""
+
+        def ignore_in_help(action):
+            return lambda: action() if not self._show_help else None
 
         def navigate(delta: int):
             self.navigate(delta)
@@ -57,17 +66,55 @@ class _Editor:
         def toggle_filtering():
             self.filter_untagged_rows = not self.filter_untagged_rows
 
+        def toggle_help():
+            self._show_help = not self._show_help
+
         return {
-            "up": lambda: navigate(-1),
-            "down": lambda: navigate(1),
-            "pageup": lambda: navigate(-5),
-            "pagedown": lambda: navigate(5),
-            "home": lambda: navigate(-1000000000),
-            "end": lambda: navigate(1000000000),
-            "a": self.toggle_instruction_ancestors,
-            "f": toggle_filtering,
-            "o": self.toggle_output_display,
+            "up": ignore_in_help(lambda: navigate(-1)),
+            "down": ignore_in_help(lambda: navigate(1)),
+            "pageup": ignore_in_help(lambda: navigate(-5)),
+            "pagedown": ignore_in_help(lambda: navigate(5)),
+            "home": ignore_in_help(lambda: navigate(-1000000000)),
+            "end": ignore_in_help(lambda: navigate(1000000000)),
+            "h": toggle_help,
+            "?": toggle_help,
+            "a": ignore_in_help(self.toggle_instruction_ancestors),
+            "f": ignore_in_help(toggle_filtering),
+            "o": ignore_in_help(self.toggle_output_display),
         }
+
+    def _render_help(self, target: Layout):
+
+        keymap_table = Table(title="Keymap")
+        keymap_table.add_column("Key", justify="right", no_wrap=True)
+        keymap_table.add_column("")
+
+        keymap_table.add_row("up / down arrow", "Navigate up or down by one line.")
+        keymap_table.add_row("pageup / pagedown", "Navigate up or down by five lines.")
+        keymap_table.add_row("home", "Navigate to the beginning of the file.")
+        keymap_table.add_row("end", "Navigate to the end of the file.")
+        keymap_table.add_row("'?', 'h'", "Toggle this help message.")
+        keymap_table.add_row(
+            "'a'",
+            "Toggle instruction ancestors. Any instructions that contribute to the values of the inputs on the current line will be marked. The target line will be marked with '=', toggling with the target line selected will exit ancestor mode.'",
+        )
+        keymap_table.add_row(
+            "'f'",
+            "Toggle instruction filtering. Causes instructions that are not marked as ancestors to be hidden.",
+        )
+        keymap_table.add_row("'o'", "Toggle the display of the simulated output value.")
+
+        target.update(
+            Panel(
+                Group(
+                    Text(
+                        "The editor screen displays the shader source and state of registers."
+                    ),
+                    keymap_table,
+                ),
+                title="Help",
+            )
+        )
 
     def clear(self):
         self._source = []
@@ -153,6 +200,7 @@ class _Editor:
             self._update_filter()
 
     def toggle_output_display(self):
+        """Toggles the display of result register contents."""
         self._show_outputs = not self._show_outputs
 
     def toggle_instruction_ancestors(self):
@@ -190,6 +238,10 @@ class _Editor:
         region = render_map[target].region
         visible_rows = region.height
         visible_columns = region.width
+
+        if self._show_help:
+            self._render_help(target)
+            return
 
         source_region_name = f"{target.name}#src"
         inputs_region_name = f"{target.name}#inputs"

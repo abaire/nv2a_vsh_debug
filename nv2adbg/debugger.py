@@ -188,6 +188,7 @@ class _App:
         action = default_keymap.get(key, None)
         if action:
             action()
+            return
         print(f"Unhandled key {key}")
 
     def run(self):
