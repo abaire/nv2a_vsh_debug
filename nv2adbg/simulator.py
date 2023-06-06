@@ -64,6 +64,40 @@ class Register:
         return f"{self.name}[{self.x:f},{self.y:f},{self.z:f},{self.w:f}]"
 
 
+class RegisterReference:
+    """Models a source reference to a single register which may include optional sign and mask components.
+
+    Attributes:
+            negate: bool - Whether the value of the register should be negated.
+            raw_name: str - The name of the register as defined in source code.
+            canonical_name: str - The name of the register without optional brackets (e.g., c[120] => c120).
+            mask: str - The raw component mask to be applied when accessing the register.
+            extended_mask: str - The mask padded to be exactly 4 elements long by duplicating the last component.
+                                 E.g., "xyz" => "xyzz", "y" => "yyyy".
+    """
+
+    def __init__(self, source: str):
+        if source[0] == "-":
+            self.negate = True
+            source = source[1:]
+        else:
+            self.negate = False
+
+        components = source.split(".")
+
+        self.raw_name = components[0]
+        self.canonical_name = self.raw_name.replace("[", "").replace("]", "")
+
+        if len(components) == 1:
+            self.mask = "xyzw"
+        else:
+            self.mask = components[1]
+
+        self.extended_mask = self.mask
+        while len(self.extended_mask) < 4:
+            self.extended_mask += self.extended_mask[-1]
+
+
 class Context:
     """Holds the current register context."""
 
@@ -90,61 +124,37 @@ class Context:
     def apply(self, step):
         self._state.apply(step)
 
-    # @property
-    # def registers(self):
-    #     return self._flat_registers
-    #
-    # @property
-    # def input_registers(self):
-    #     return self._input_registers
-    #
-    # @property
-    # def constant_registers(self):
-    #     return self._constant_registers
-
     def duplicate(self):
         new = Context()
         new.from_dict(self.to_dict())
         return new
 
-    # def _reg_by_name(self, name: str) -> Register:
-    #     name = name.replace("[", "").replace("]", "")
-    #     if name == "R12":
-    #         name = "oPos"
-    #     for reg in self._flat_registers:
-    #         if reg.name == name:
-    #             return reg
-    #     raise Exception(f"Unknown register {name}")
-    #
-    # def _get_reg_and_mask(
-    #     self, masked_reg: str, extend: bool = False
-    # ) -> Tuple[Register, str]:
-    #     vals = masked_reg.split(".")
-    #     reg = self._reg_by_name(vals[0])
-    #     if len(vals) == 1:
-    #         return reg, "xyzw"
-    #
-    #     mask = vals[1]
-    #     if extend:
-    #         while len(mask) < 4:
-    #             mask += mask[-1]
-    #     return reg, mask
-    #
-    # def set(self, target: str, value: Tuple[float, float, float, float]):
-    #     reg, mask = self._get_reg_and_mask(target)
-    #     reg.set(mask, value)
-    #
-    # def get(self, source: str) -> Tuple[float, float, float, float]:
-    #     negate = False
-    #     if source[0] == "-":
-    #         negate = True
-    #         source = source[1:]
-    #     reg, mask = self._get_reg_and_mask(source, True)
-    #
-    #     ret = reg.get(mask)
-    #     if negate:
-    #         ret = [-1 * val for val in ret]
-    #     return ret[0], ret[1], ret[2], ret[3]
+    def _reg_by_name(self, name: str) -> Register:
+        return Register(name, *self._state.get_register_value(name))
+
+    def _get_reg_and_mask(
+        self, reg_ref: RegisterReference, extend: bool = False
+    ) -> Tuple[Register, str]:
+        reg = Register(
+            reg_ref.raw_name, *self._state.get_register_value(reg_ref.canonical_name)
+        )
+
+        if extend:
+            return reg, reg_ref.extended_mask
+        return reg, reg_ref.mask
+
+    def get(self, source: str) -> Tuple[float, float, float, float]:
+        register_ref = RegisterReference(source)
+        reg, mask = self._get_reg_and_mask(register_ref, True)
+
+        ret = reg.get(mask)
+        if register_ref.negate:
+            ret = [-1 * val for val in ret]
+        return ret[0], ret[1], ret[2], ret[3]
+
+    def set(self, target: str, value: Tuple[float, float, float, float]):
+        reg, mask = self._get_reg_and_mask(target)
+        reg.set(mask, value)
 
 
 class Shader:
