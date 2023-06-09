@@ -16,3 +16,6 @@ export*.vsh
 
 /*.so
 nv2adbg/*.so
+
+Pipfile
+Pipfile.lock

@@ -1,122 +1,100 @@
 """Provides functionality to render the File menu."""
 
-from rich import console
-from rich.layout import Layout
-from rich.prompt import Prompt
-from rich.text import Text
-from typing import Tuple, Union
+from typing import Callable
 
-from nv2adbg._shader_program import _ShaderProgram
+from textual.app import ComposeResult
+from textual.containers import Center
+from textual.containers import Horizontal
+from textual.reactive import Reactive
+from textual.screen import ModalScreen
+from textual.widgets import Button
+from textual.widgets import Input
+from textual.widgets import Label
 
 
-class _FileMenu:
+class _FileMenu(ModalScreen):
     """Renders the file input menu."""
 
-    def __init__(self, program: _ShaderProgram):
-        self._program = program
-        self._cursor_pos = 0
-        self._entries = []
-        self._entry_titles = [
-            " Source             ",
-            " Inputs             ",
-            " Renderdoc Inputs   ",
-            " Renderdoc Constants",
-        ]
-        self._active_prompt = None
-        self._reset_values()
-        self._reset_action_index = None
-        self._activate_action_index = None
-        self._update_entries()
+    BINDINGS = [("escape", "cancel", "Cancel")]
 
-    def create_keymap(self, on_complete):
-        """Returns a keymap used to interact with this menu.
+    DEFAULT_CSS = """
+    _FileMenu {
+        layout: grid;
+        grid-columns: 28 1fr;
+        grid-size: 2;
+    }
 
-        Arguments:
-            on_complete: Method to be invoked when the menu should be closed.
-        """
+    _FileMenu .label {
+        padding: 1 2;
+        text-align: right;
+    }
 
-        def activate():
-            if self.activate():
-                on_complete()
+    #buttonbar {
+        column-span: 2;
+    }
+    """
 
-        return {
-            "up": lambda: self._navigate(-1),
-            "down": lambda: self._navigate(1),
-            "enter": activate,
-            "tab": activate,
-        }
+    def __init__(
+        self,
+        on_accept: Callable[[str, str, str, str], None],
+        on_cancel: Callable[[], None],
+        source_file: str = "",
+        inputs_file: str = "",
+        mesh_inputs_file: str = "",
+        constants_file: str = "",
+    ):
+        super().__init__()
+        self._on_accept = on_accept
+        self._on_cancel = on_cancel
+        self._source_file = source_file
+        self._inputs_file = inputs_file
+        self._mesh_inputs_file = mesh_inputs_file
+        self._constants_file = constants_file
 
-    def _navigate(self, delta: int):
-        self._cursor_pos = (self._cursor_pos + delta) % len(self._entries)
+    def compose(self) -> ComposeResult:
+        def _row(input_id: str, label: str, placeholder: str, value: Reactive):
+            yield Label(label, classes="label")
+            yield Input(placeholder=placeholder, value=value, id=input_id)
 
-    def activate(self) -> bool:
-        """Activates the currently highlighted submenu entry. Returns True if the menu should be exited."""
-        if self._cursor_pos == self._activate_action_index:
-            self._program.source_file = self._values[0]
-            self._program.inputs_file = self._values[1]
-            self._program.mesh_inputs_file = self._values[2]
-            self._program.constants_file = self._values[3]
-            return True
-
-        if self._cursor_pos == self._reset_action_index:
-            self._reset_values()
-            return True
-
-        self._active_prompt = self._entry_titles[self._cursor_pos]
-        return False
-
-    def _reset_values(self):
-        self._values = [
-            self._program.source_file,
-            self._program.inputs_file,
-            self._program.mesh_inputs_file,
-            self._program.constants_file,
-        ]
-
-    def _process_input(self, value: str):
-        if not value:
-            return
-        self._values[self._cursor_pos] = value
-
-    def render(self, con: console.Console, root: Layout, target_name: str):
-        """Renders this file menu instance to the given Console with the given root Layout."""
-        render_map = root.render(con, con.options)
-
-        target = root[target_name]
-        region = render_map[target].region
-
-        if self._active_prompt:
-            con.clear()
-            value = Prompt.ask(self._active_prompt, console=con)
-            self._process_input(value)
-            self._active_prompt = None
-            con.clear()
-
-        self._update_entries()
-
-        def _build(index, value) -> Union[str, Tuple[str, str]]:
-            if index == self._cursor_pos:
-                return value, "bold"
-            return value
-
-        entries = [
-            Layout(Text.assemble(_build(i, v)), size=1)
-            for i, v in enumerate(self._entries)
-        ]
-
-        target.split_column(*entries)
-
-    def _update_entries(self):
-        self._entries = [
-            f"{title}: {value}"
-            for title, value in zip(self._entry_titles, self._values)
-        ]
-        self._entries.extend(
-            [
-                "<Apply>",
-                "<Cancel>",
-            ]
+        yield from _row(
+            "source",
+            "Source file",
+            "File containing the nv2a program to debug",
+            self._source_file,
+        )
+        yield from _row(
+            "inputs",
+            "JSON inputs file",
+            "JSON file containing explicit initial state (see --emit-inputs template generation)",
+            self._inputs_file,
+        )
+        yield from _row(
+            "mesh",
+            "Renderdoc inputs file",
+            "CSV file containing mesh vertices as exported from RenderDoc",
+            self._mesh_inputs_file,
+        )
+        yield from _row(
+            "constants",
+            "Renderdoc constants file",
+            "CSV file containing the constant register values as exported from RenderDoc",
+            self._constants_file,
         )
 
-        self._activate_action_index = len(self._entries) - 2
-        self._reset_action_index = self._activate_action_index + 1
+        with Horizontal(id="buttonbar"):
+            yield Center(Button("Cancel", id="cancel"))
+            yield Center(Button("Apply", variant="primary", id="apply"))
+
+    def _on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "apply":
+            self._on_accept(
+                self.get_widget_by_id("source").value,
+                self.get_widget_by_id("inputs").value,
+                self.get_widget_by_id("mesh").value,
+                self.get_widget_by_id("constants").value,
+            )
+        elif event.button.id == "cancel":
+            self._on_cancel()
+
+    def _action_cancel(self):
+        self._on_cancel()

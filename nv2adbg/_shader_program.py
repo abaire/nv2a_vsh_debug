@@ -31,7 +31,7 @@ class _ShaderProgram:
                                      from RenderDoc.
         """
         self._shader = None
-        self._shader_trace = {}
+        self._shader_trace = None
 
         self.inputs_file = inputs_json_file
         self.mesh_inputs_file = renderdoc_mesh_csv
@@ -49,7 +49,7 @@ class _ShaderProgram:
         return self._shader
 
     @property
-    def shader_trace(self) -> dict:
+    def shader_trace(self) -> simulator.Trace:
         return self._shader_trace
 
     @property

@@ -252,8 +252,8 @@ class Nv2aVshEmuState:
     def get_register_value(self, name: str) -> Tuple[float, float, float, float]:
         """Returns the current value of the given register."""
 
-        def _get(destination, name):
-            index = int(name[1:]) * 4
+        def _get(destination, reg_name):
+            index = int(reg_name[1:]) * 4
             return tuple(destination[index : index + 4])
 
         if name == "oPos":

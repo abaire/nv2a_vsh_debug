@@ -8,217 +8,157 @@ import logging
 import os
 import sys
 
-import sshkeyboard
-
-import rich
-from rich import console
-from rich.layout import Layout
-from rich.text import Text
+from textual.app import App
+from textual.app import ComposeResult
+from textual.containers import Grid
+from textual.screen import Screen
+from textual.widgets import Footer
+from textual.widgets import Header
+from textual.widgets import Label
+from textual.widgets import Placeholder
+from textual.widgets import TabbedContent
+from textual.widgets import TabPane
 
 from nv2adbg import simulator
 from nv2adbg._editor import _Editor
 from nv2adbg._file_menu import _FileMenu
+from nv2adbg._program_inputs_viewer import _ProgramInputsViewer
+from nv2adbg._program_outputs_viewer import _ProgramOutputsViewer
 from nv2adbg._shader_program import _ShaderProgram
 
 
-class _App:
+class _HelpScreen(Screen):
+    """Screen used to display help information."""
+
+    DEFAULT_CSS = """
+    _HelpScreen {
+        align: center middle;
+    }
+
+    #dialog {
+        grid-size: 2;
+        grid-gutter: 1 2;
+        grid-rows: 1fr 3;
+        padding: 0 1;
+        min-width: 60;
+        min-height: 11;
+        border: thick $background 80%;
+        background: $surface;
+    }
+
+    #question {
+        column-span: 2;
+        height: 1fr;
+        width: 1fr;
+        content-align: center middle;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Grid(
+            Label("Are you sure you want to quit?", id="question"),
+            id="dialog",
+        )
+
+
+class _App(App):
     """Main application."""
 
-    _MENU = "menu"
-    _CONTENT = "content"
+    TITLE = "nv2a Debugger"
+    BINDINGS = [
+        ("f1", "toggle_help", "Toggle help"),
+        ("f2", "open_file", "File menu"),
+        ("f10", "app.toggle_dark", "Toggle dark mode"),
+        ("escape,q", "app.quit", "Quit"),
+    ]
+
+    CSS = """
+    /* Workaround for Textualize#2408 */
+    TabbedContent ContentSwitcher {
+        height: 1fr;
+    }
+    """
 
     def __init__(self, program: _ShaderProgram):
+        super().__init__()
         self._program = program
-        self._console = console.Console()
-        self._shader_trace: dict = {}
-        self._root = Layout()
         self._editor = _Editor()
-        self._file_menu = _FileMenu(program)
-        self._active_layout = self._CONTENT
-        self._active_content = self._editor if program.loaded else self._file_menu
+        self._program_inputs = _ProgramInputsViewer()
+        self._program_outputs = _ProgramOutputsViewer()
+        self._load_program()
 
-        self._running = False
+    def compose(self) -> ComposeResult:
+        """Create child widgets for the app."""
+        yield Header()
+        with TabbedContent():
+            with TabPane("Editor"):
+                yield self._editor
+            with TabPane("Inputs"):
+                yield self._program_inputs
+            with TabPane("Outputs"):
+                yield self._program_outputs
+        yield Footer()
 
-        self._update()
+    def action_toggle_help(self) -> None:
+        self.push_screen(_HelpScreen())
 
-        self.set_shader_trace(program.shader_trace)
+    def action_open_file(self) -> None:
+        def on_accept(
+            source_file: str,
+            inputs_file: str,
+            mesh_inputs_file: str,
+            constants_file: str,
+        ):
+            self._program.source_file = source_file
+            self._program.inputs_file = inputs_file
+            self._program.mesh_inputs_file = mesh_inputs_file
+            self._program.constants_file = constants_file
+            self.pop_screen()
+            self._load_program()
 
-        self._keymaps = {
-            "": self._create_global_keymap(),
-            self._MENU: self._create_menu_keymap(),
-            self._CONTENT: (
-                self._editor.create_keymap()
-                if program.loaded
-                else self._file_menu.create_keymap(self._activate_program())
-            ),
-        }
+        def on_cancel():
+            self.pop_screen()
 
-    def _activate_program(self):
+        self.push_screen(
+            _FileMenu(
+                on_accept,
+                on_cancel,
+                self._program.source_file,
+                self._program.inputs_file,
+                self._program.mesh_inputs_file,
+                self._program.constants_file,
+            )
+        )
+
+    def _load_program(self):
         if not self._program.loaded:
+            self.sub_title = ""
             return
+        self.sub_title = self._program.source_file
         self._program.build_shader()
         self.set_shader_trace(self._program.shader_trace)
-        self._keymaps[self._CONTENT] = self._editor.create_keymap()
-        self._active_content = self._editor
 
-    def set_shader_trace(self, shader_trace: dict):
-        if not shader_trace:
-            self._editor.clear()
-        else:
-            steps = shader_trace["steps"]
-            self._editor.set_source(
-                [(step["source"], step["instruction"]) for step in steps],
-                [step["state"] for step in steps],
-            )
-        self._update()
-
-    def _create_global_keymap(self):
-        def _gen_focus(target):
-            self._activate_section(target)
-
-        return {
-            "f1": lambda: _gen_focus(self._MENU),
-            "1": lambda: _gen_focus(self._MENU),
-            "f2": lambda: _gen_focus(self._CONTENT),
-            "2": lambda: _gen_focus(self._CONTENT),
-        }
-
-    def _export(self):
-        # TODO: Pop a text input dialog and capture a filename.
-        filename = ""
-        for index in range(1000):
-            filename = f"export{index:04}.vsh"
-            if not os.path.exists(filename):
-                break
-        if os.path.exists(filename):
-            raise Exception("Failed to find an unused export filename.")
-
-        def resolve(input):
-            return self._program.shader.initial_state.get(input)
-
-        self._editor.export(filename, resolve)
-
-    def _create_menu_keymap(self):
-        def handle_file():
-            self._active_layout = self._CONTENT
-            self._active_content = self._file_menu
-            self._keymaps[self._CONTENT] = self._file_menu.create_keymap(
-                self._activate_program
-            )
-
-        def handle_export():
-            self._export()
-            self._active_layout = self._CONTENT
-
-        return {
-            "f": handle_file,
-            "e": handle_export,
-        }
-
-    def _activate_section(self, target):
-        self._active_layout = target
-
-        for section in [self._MENU, self._CONTENT]:
-
-            def content():
-                if self._active_layout == section:
-                    return Text("*")
-                return Text("")
-
-            self._root[f"{section}#active"].update(content())
-
-    @property
-    def _active_keymap(self):
-        return self._keymaps.get(self._active_layout, {})
-
-    def _update(self):
-        self._root.split_column(
-            Layout(name=self._MENU, size=1),
-            Layout(name=self._CONTENT),
+    def set_shader_trace(self, shader_trace: simulator.Trace):
+        self._editor.set_shader_trace(shader_trace)
+        self._program_inputs.set_context(shader_trace.input_context)
+        self._program_outputs.set_context(
+            shader_trace.input_context, shader_trace.output_context
         )
 
-        self._root[self._MENU].split_row(
-            Layout(name=f"{self._MENU}#active", size=1),
-            Layout(name=f"{self._MENU}#content"),
-        )
-
-        self._root[self._CONTENT].split_row(
-            Layout(name=f"{self._CONTENT}#active", size=1),
-            Layout(name=f"{self._CONTENT}#content"),
-        )
-
-        self._update_menu()
-        self._active_content.render(
-            self._console, self._root, f"{self._CONTENT}#content"
-        )
-        self._activate_section(self._active_layout)
-
-    def _update_menu(self):
-        menu_spacing = "    "
-        menu_items = ["File", "Export"]
-
-        def content():
-            if self._active_layout == self._MENU:
-                elements = []
-                for title in menu_items:
-                    elements.append((f"[{title[0]}]", "bold magenta"))
-                    elements.append(title[1:])
-                    elements.append(menu_spacing)
-                return Text.assemble(*elements)
-            return Text(menu_spacing.join(menu_items), style="magenta", justify="left")
-
-        self._root[f"{self._MENU}#content"].update(content())
-
-    def render(self):
-        """Draws the application to the console."""
-        rich.print(self._root)
-
-    def _handle_key(self, key):
-        if key == "esc" or key == "q":
-            self._running = False
-            return
-
-        keymap = self._active_keymap
-        action = keymap.get(key, None)
-        if action:
-            action()
-            return
-
-        default_keymap = self._keymaps[""]
-        action = default_keymap.get(key, None)
-        if action:
-            action()
-            return
-        print(f"Unhandled key {key}")
-
-    def run(self):
-
-        input_queue = []
-
-        def handle_key(key):
-            input_queue.append(key)
-            sshkeyboard.stop_listening()
-
-        self._running = True
-        with self._console.screen() as screen:
-            screen.update(self._root)
-
-            try:
-                while self._running:
-                    input_queue.clear()
-                    sshkeyboard.listen_keyboard(
-                        on_press=handle_key,
-                        until=None,
-                        sequential=True,
-                        delay_second_char=10,
-                    )
-                    for key in input_queue:
-                        self._handle_key(key)
-                    if self._running:
-                        self._update()
-                        screen.update(self._root)
-            except KeyboardInterrupt:
-                return
+    # def _export(self):
+    #     # TODO: Pop a text input dialog and capture a filename.
+    #     filename = ""
+    #     for index in range(1000):
+    #         filename = f"export{index:04}.vsh"
+    #         if not os.path.exists(filename):
+    #             break
+    #     if os.path.exists(filename):
+    #         raise Exception("Failed to find an unused export filename.")
+    #
+    #     def resolve(input):
+    #         return self._program.shader.initial_state.get(input)
+    #
+    #     self._editor.export(filename, resolve)
 
 
 def _emit_input_template():
@@ -261,7 +201,7 @@ def _main(args):
     )
 
     if args.json:
-        json.dump(program.shader_trace, sys.stdout, indent=2, sort_keys=True)
+        json.dump(program.shader_trace.to_dict(), sys.stdout, indent=2, sort_keys=True)
         return 0
 
     app = _App(program)
