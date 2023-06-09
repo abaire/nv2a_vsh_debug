@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from dataclasses import replace
 from typing import Dict
+from typing import FrozenSet
 from typing import List
 from typing import Optional
 from typing import Self
@@ -150,20 +151,27 @@ class RegisterReference:
             extended_mask=extended_mask,
         )
 
-    def destructively_satisfy(self, other: Self) -> bool:
-        """Checks to see if `other` overlaps with this RegisterReference, clearing any mask components that overlap.
+    def destructively_satisfy(self, other: Self) -> str:
+        """Returns the intersected mask between `self` and `other`, clearing any mask components that overlap.
 
         This destructively mutates this RegisterReference, clearing the negate and extended_mask fields and sorting the
         mask field. This is only meant to be used during ancestor tracking where the original RegisterReference's are
         preserved elsewhere.
+
+        The return value is the sorted intersection between the self and other masks. E.g., if self = R0.xyz and
+        other = R0.xzw, the return would be "xz".
         """
         if other.canonical_name != self.canonical_name:
-            return False
+            return ""
+
+        mask_intersection = set(self.mask) & set(other.mask)
+        if not mask_intersection:
+            return ""
 
         self.negate = None
         self.extended_mask = None
-        self.mask = "".join(sorted(set(self.mask) - set(other.mask)))
-        return True
+        self.mask = "".join(sorted(set(self.mask) - mask_intersection))
+        return "".join(sorted(mask_intersection))
 
     def lossy_merge(self, other: Self) -> Self:
         """Returns a new RegisterReference combining this RegisterReference with the mask another RegisterReference.
@@ -290,10 +298,14 @@ class Step:
         self._state = state
         self._instruction = instruction
 
-        self._inputs = _extract_inputs(instruction)
-        self._outputs = _extract_outputs(instruction)
+        self._inputs: Dict[str, List[RegisterReference]] = _extract_inputs(instruction)
+        self._outputs: Dict[str, List[RegisterReference]] = _extract_outputs(
+            instruction
+        )
 
-        self._ancestors = None
+        self._ancestors: Optional[
+            Dict[str, Tuple[List["Ancestor"], Set[RegisterReference]]]
+        ] = None
 
     def to_dict(self) -> dict:
         """Returns a dictionary representation of this Step."""
@@ -372,10 +384,16 @@ class Step:
 
 @dataclass(unsafe_hash=True, frozen=True)
 class Ancestor:
-    """Captures a relationship in which the mac|ilu of the given Step contributes to the input of some other Step."""
+    """Captures a relationship in which the mac|ilu of the given Step contributes to the input of some other Step.
+
+    step: The Step contributing to some other Step's input.
+    mac_or_ilu: Whether it is the Step's mac or ilu stage that contributes the value.
+    components: Dictionary mapping output registers to the components of the output that are used.
+    """
 
     step: Step
     mac_or_ilu: str
+    components: FrozenSet[Tuple[str, str]]
 
 
 class Trace:
@@ -490,22 +508,25 @@ def _find_ancestors(
     inputs = deepcopy(new_step.inputs)
     previous_steps = reversed(previous_steps)
 
-    def is_ancestor(
-        input_register_reference: RegisterReference, outputs: List[RegisterReference]
-    ) -> bool:
-        """Removes overlapping masks between the given outputs and input_register_reference. Returns true on overlap."""
+    def find_dependent_components(
+        input: RegisterReference, outputs: List[RegisterReference]
+    ) -> dict[str, str]:
+        """Removes overlapping masks between the given outputs and input, returning satisfied components.
 
-        had_ancestor = False
+        E.g., if input is R0.xyw, R1 and outputs is R0.x, R1 the returned dict will be { "R0": "x", "R1": "xyzw" }
+        """
+
+        ret = {}
         for out_ref in outputs:
-            is_ancestor = input_register_reference.destructively_satisfy(out_ref)
-            if not is_ancestor:
+            dependent_components = input.destructively_satisfy(out_ref)
+            if not dependent_components:
                 continue
 
-            had_ancestor = True
-            if not input_register_reference.mask:
+            ret[out_ref.raw_name] = dependent_components
+            if not input.mask:
                 break
 
-        return had_ancestor
+        return ret
 
     def clean_satisfied_inputs():
         keys = list(inputs.keys())
@@ -525,8 +546,11 @@ def _find_ancestors(
                     continue
 
                 for out_key, out_refs in prev_outputs.items():
-                    if is_ancestor(in_ref, out_refs):
-                        ancestor = Ancestor(prev, out_key)
+                    components = find_dependent_components(in_ref, out_refs)
+                    if components:
+                        ancestor = Ancestor(
+                            prev, out_key, frozenset(components.items())
+                        )
                         if ancestor not in ancestors[in_key]:
                             ancestors[in_key].append(ancestor)
 
