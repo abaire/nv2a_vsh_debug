@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from _nv2a_vsh_cpu import ffi
 from _nv2a_vsh_cpu import lib
@@ -248,3 +248,26 @@ class Nv2aVshEmuState:
 
     def apply(self, step: Nv2aVshStep):
         lib.nv2a_vsh_emu_apply(ffi.addressof(self._token), step._step)
+
+    def get_register_value(self, name: str) -> Tuple[float, float, float, float]:
+        """Returns the current value of the given register."""
+
+        def _get(destination, reg_name):
+            index = int(reg_name[1:]) * 4
+            return tuple(destination[index : index + 4])
+
+        if name == "oPos":
+            name = "R12"
+
+        if name[0] == "v":
+            return _get(self._state.input_regs, name)
+        if name[0] == "c":
+            return _get(self._state.context_regs, name)
+        if name[0] == "R":
+            return _get(self._state.temp_regs, name)
+        if name[0] == "o":
+            return _get(self._state.output_regs, name)
+        if name == "A0":
+            return tuple(self._state.address_reg)
+
+        raise Exception(f"Unknown register '{name}'")
