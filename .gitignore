@@ -15,7 +15,11 @@ dist/
 export*.vsh
 
 /*.so
-nv2adbg/*.so
+src/**/*.so
 
+# Directory for input files used during development.
+dev_inputs/
+
+# Pipenv files used during development.
 Pipfile
 Pipfile.lock
