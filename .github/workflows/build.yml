@@ -24,9 +24,9 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
-          python-version: '3.8'
+          python-version: '3.9'
       - name: Build sdist
         run: python setup.py sdist
       - uses: actions/upload-artifact@v2
@@ -34,17 +34,45 @@ jobs:
           name: source
           path: dist/*.tar.gz
 
-  build_wheels:
+  run_pytest:
+    name: Run tests and coverage
     needs: build_sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip setuptools wheel pytest
+      - name: Download source distribution
+        uses: actions/download-artifact@v2
+        with:
+          name: source
+      - name: Get package name
+        run: python -c "import os, glob; open(os.environ['GITHUB_ENV'], 'w').write('PKG=' + glob.glob('nv2a_debug-*.tar.gz')[0][0:-7] + '\n')"
+      - name: Unpack source distribution
+        run: tar -xf ${{ env.PKG }}.tar.gz
+      - name: Install package
+        run: |
+          cd ${{ env.PKG }}
+          pip3 install -e .
+      - name: Test with pytest
+        run: |
+          cd ${{ env.PKG }}
+          pytest  --doctest-modules --junitxml=junit/test-results.xml
+
+  build_wheels:
+    needs: [run_pytest, build_sdist]
     name: Build wheel on ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
     strategy:
       matrix:
         platform: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
-          python-version: "3.8"
+          python-version: "3.9"
       - name: Download source distribution
         uses: actions/download-artifact@v2
         with:
@@ -60,7 +88,7 @@ jobs:
           python -m cibuildwheel --output-dir wheelhouse ${{ env.PKG }}
         env:
           LD_LIBRARY_PATH: .
-          CIBW_BUILD: "pp38-*"
+          CIBW_BUILD: "pp39-*"
           CIBW_BEFORE_BUILD_LINUX: pip install cmake
           CIBW_BUILD_VERBOSITY: 1
       - uses: actions/upload-artifact@v2
