@@ -8,9 +8,9 @@ from typing import Dict
 from typing import FrozenSet
 from typing import List
 from typing import Optional
-from typing import Self
 from typing import Set
 from typing import Tuple
+from typing_extensions import Self
 
 import nv2avsh
 from nv2adbg.py_nv2a_vsh_emu import Nv2aVshEmuState
