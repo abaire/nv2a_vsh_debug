@@ -24,6 +24,50 @@ from nv2adbg.simulator import Step
 from nv2adbg.simulator import Trace
 
 
+class TraceView:
+    """Provides a filtered view of a Trace by following the ancestry of a Step."""
+
+    def __init__(self, trace: Trace, root_step: Optional[Step] = None):
+        self._trace: Trace = trace
+        self._ancestors: Optional[Set[Ancestor]] = None
+        self._inputs: Optional[Set[RegisterReference]] = None
+        self.filtered_steps: List[Step] = self._trace.steps
+        self._root_step: Optional[Step] = root_step
+
+        self.set_ancestor_root(root_step)
+
+    def set_ancestor_root(self, root_step: Optional[Step]):
+        """Sets the root of the filtered view."""
+        self._root_step = root_step
+        if not root_step:
+            self._ancestors = None
+            self._inputs = None
+            self.filtered_steps = self._trace.steps
+            return
+
+        ancestors, inputs = _collect_contributors(root_step)
+        self._ancestors = ancestors
+        self._inputs = inputs
+
+        included_steps = set([a.step for a in ancestors])
+        self.filtered_steps = [s for s in self._trace.steps if s in included_steps]
+
+    def get_step(self, step_index: int) -> Tuple[int, Step]:
+        """Returns the filtered index and step with the given program index."""
+        for idx, s in enumerate(self.filtered_steps):
+            if s.index == step_index:
+                return idx, s
+        raise IndexError(f"Step index '{step_index}' not present in filtered view")
+
+    def get_step_at_display_index(self, index: int) -> Step:
+        """Returns the Step at the given offset within the filtered view."""
+        return self.filtered_steps[index]
+
+    @property
+    def is_filtered(self) -> bool:
+        return self._root_step is not None
+
+
 class _CodePanel(ScrollView, can_focus=True):
     """Renders the code view."""
 
@@ -104,6 +148,9 @@ class _CodePanel(ScrollView, can_focus=True):
     }
     """
 
+    _FILTER_ENABLE_HELP_TEXT = "Show ancestors only"
+    _FILTER_DISABLE_HELP_TEXT = "Show all instructions"
+
     cursor_pos = reactive(0, always_update=True)
     show_ancestors = reactive(False)
 
@@ -121,18 +168,10 @@ class _CodePanel(ScrollView, can_focus=True):
             self.linenum = linenum
             self.step = step
 
-    @dataclass(unsafe_hash=True, frozen=True)
-    class _LineCacheKey:
-        """Key for the line cache used to reuse existing line Strips"""
-
-        row: int
-        width: int
-        is_selected: bool
-        modifiers: str
-
     def __init__(self):
         super().__init__()
         self._trace: Optional[Trace] = None
+        self._trace_view: Optional[TraceView] = None
         self._lines: List[Tuple[str, Step]] = []
         self._start_line: int = 0
 
@@ -146,31 +185,39 @@ class _CodePanel(ScrollView, can_focus=True):
 
     def set_shader_trace(self, trace: Trace):
         self._trace = trace
+        self._trace_view = TraceView(trace)
 
         self._lines.clear()
         self._start_line = 0
         self.cursor_pos = 0
 
         if not trace:
-            self.virtual_size = Size(self.size.width, 0)
+            self.virtual_size = Size(self.size.width - 1, 0)
         else:
-            linenum_width = len(str(len(self._trace.steps)))
-            for step in self._trace.steps:
-                linenum = step.index + 1
-                self._lines.append(
-                    (
-                        f"{linenum: >{linenum_width}}  ",
-                        step,
-                    )
-                )
+            self._rebuild_lines()
 
-            self.virtual_size = Size(self.size.width, len(trace.steps))
-            self.post_message(
-                self.ActiveLineChanged(self.cursor_pos, self._trace.steps[0])
+    def _rebuild_lines(self):
+        self._lines.clear()
+        linenum_width = len(str(len(self._trace.steps)))
+        for step in self._trace_view.filtered_steps:
+            linenum = step.index + 1
+            self._lines.append(
+                (
+                    f"{linenum: >{linenum_width}}  ",
+                    step,
+                )
             )
 
+        # TODO: properly measure max size. Some ancestor tracing interactions can grow the step length by adding masks.
+        # Maximum visible length is the widget boundaries - 2 to account for the scroll bar.
+        max_line_length = self.size.width - 2
+        self.virtual_size = Size(max_line_length, len(self._trace_view.filtered_steps))
+        self.post_message(
+            self.ActiveLineChanged(self.cursor_pos, self._trace_view.filtered_steps[0])
+        )
+
     def render_line(self, y: int) -> Strip:
-        scroll_x, scroll_y = self.scroll_offset
+        _scroll_x, scroll_y = self.scroll_offset
         line = self._render_line(scroll_y + y, self.size.width)
         return line
 
@@ -273,8 +320,8 @@ class _CodePanel(ScrollView, can_focus=True):
 
         self.scroll_to_show_row(new_pos)
 
-        if new_pos < len(self._trace.steps):
-            step = self._trace.steps[new_pos]
+        if new_pos < len(self._trace_view.filtered_steps):
+            step = self._trace_view.filtered_steps[new_pos]
         else:
             step = None
         self.post_message(self.ActiveLineChanged(new_pos, step))
@@ -299,7 +346,7 @@ class _CodePanel(ScrollView, can_focus=True):
             self._highlighted_inputs.clear()
 
     def _refresh_ancestors(self, row: int):
-        step = self._trace.steps[row]
+        step = self._trace_view.filtered_steps[row]
         self._ancestor_chain_root_step_index = step.index
         ancestors, inputs = _collect_contributors(step)
 
@@ -320,7 +367,7 @@ class _CodePanel(ScrollView, can_focus=True):
         if not self.show_ancestors:
             return ""
 
-        step = self._trace.steps[row]
+        step = self._trace_view.get_step_at_display_index(row)
         if self._get_ancestor_relationships(step):
             if step.index == self._ancestor_chain_root_step_index:
                 return "<=>" if self._ancestor_locked else "="
@@ -329,13 +376,14 @@ class _CodePanel(ScrollView, can_focus=True):
 
     @property
     def visible_rows(self) -> int:
-        return self.size.height - 1
+        obscured_rows = 1 if self.show_horizontal_scrollbar else 0
+        return self.size.height - (1 + obscured_rows)
 
     @property
     def selected_step(self) -> Optional[Step]:
         if not self._trace:
             return None
-        return self._trace.steps[self.cursor_pos]
+        return self._trace_view.filtered_steps[self.cursor_pos]
 
     @property
     def selected_step_is_locked_root(self) -> bool:
@@ -392,15 +440,31 @@ class _CodePanel(ScrollView, can_focus=True):
             self._ancestor_locked = False
         else:
             self._bindings.bind("a", "toggle_ancestors", "Hide ancestors")
-            self._bindings.bind("f", "toggle_filtering", "Show ancestors only")
+            self._bindings.bind("f", "toggle_filtering", self._FILTER_ENABLE_HELP_TEXT)
             self._bindings.bind("space", "toggle_ancestor_lock", "Lock ancestor")
-        self.screen.focused = None
-        self.focus()
+        self._refresh_bindings()
 
         self.show_ancestors = not self.show_ancestors
 
     def _action_toggle_filtering(self):
-        pass
+        root_step = self.selected_step
+
+        if self._trace_view.is_filtered:
+            self._bindings.bind("f", "toggle_filtering", self._FILTER_ENABLE_HELP_TEXT)
+            self._trace_view.set_ancestor_root(None)
+        else:
+            self._bindings.bind("f", "toggle_filtering", self._FILTER_DISABLE_HELP_TEXT)
+            self._trace_view.set_ancestor_root(root_step)
+
+        self._rebuild_lines()
+        self.cursor_pos = self._trace_view.get_step(root_step.index)[0]
+
+        self._refresh_bindings()
+        self.refresh()
+
+    def _refresh_bindings(self):
+        self.screen.focused = None
+        self.focus()
 
     def _action_toggle_ancestor_lock(self):
         is_new_lock = self._ancestor_locked and self.selected_step_is_locked_root
