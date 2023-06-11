@@ -27,47 +27,12 @@ from nv2adbg._program_outputs_viewer import _ProgramOutputsViewer
 from nv2adbg._shader_program import _ShaderProgram
 
 
-class _HelpScreen(Screen):
-    """Screen used to display help information."""
-
-    DEFAULT_CSS = """
-    _HelpScreen {
-        align: center middle;
-    }
-
-    #dialog {
-        grid-size: 2;
-        grid-gutter: 1 2;
-        grid-rows: 1fr 3;
-        padding: 0 1;
-        min-width: 60;
-        min-height: 11;
-        border: thick $background 80%;
-        background: $surface;
-    }
-
-    #question {
-        column-span: 2;
-        height: 1fr;
-        width: 1fr;
-        content-align: center middle;
-    }
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Label("Are you sure you want to quit?", id="question"),
-            id="dialog",
-        )
-
-
 class _App(App):
     """Main application."""
 
     TITLE = "nv2a Debugger"
     BINDINGS = [
-        ("f1", "toggle_help", "Toggle help"),
-        ("f2", "open_file", "File menu"),
+        ("f1", "open_file", "File menu"),
         ("f10", "app.toggle_dark", "Toggle dark mode"),
         ("escape,q", "app.quit", "Quit"),
     ]
@@ -98,9 +63,6 @@ class _App(App):
             with TabPane("Outputs"):
                 yield self._program_outputs
         yield Footer()
-
-    def action_toggle_help(self) -> None:
-        self.push_screen(_HelpScreen())
 
     def action_open_file(self) -> None:
         def on_accept(
