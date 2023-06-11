@@ -522,7 +522,7 @@ def _find_ancestors(
             if not dependent_components:
                 continue
 
-            ret[out_ref.raw_name] = dependent_components
+            ret[out_ref.canonical_name] = dependent_components
             if not input.mask:
                 break
 
