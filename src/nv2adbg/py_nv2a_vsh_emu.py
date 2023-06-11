@@ -54,7 +54,8 @@ _WRITEMASKS = [
     "",  # ".xyzw",
 ]
 
-_OUTPUT_NAMES = {
+"""Maps output register indices to names (e.g., o3: oD0)"""
+OUTPUT_NAMES = {
     0: "oPos",
     3: "oD0",
     4: "oD1",
@@ -78,7 +79,7 @@ def _stringify_output(type, index, writemask) -> str:
         return f"c[{index}]{mask}"
 
     if type == lib.NV2ART_OUTPUT:
-        return f"{_OUTPUT_NAMES[index]}{mask}"
+        return f"{OUTPUT_NAMES[index]}{mask}"
 
     return f"{_REGISTERS[type]}{index}{mask}"
 
@@ -98,7 +99,6 @@ def _make_swizzle(components: List[int]) -> str:
 
 
 def _stringify_input(type, index, swizzle, negate: bool, relative: bool) -> str:
-
     if type == lib.NV2ART_CONTEXT:
         rel = "A0+" if relative else ""
         reg = f"c[{rel}{index}]"

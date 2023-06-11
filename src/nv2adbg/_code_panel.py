@@ -17,6 +17,7 @@ from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.widgets import Label
 
+from nv2adbg.simulator import canonicalize_register_name
 from nv2adbg.simulator import Ancestor
 from nv2adbg.simulator import RegisterReference
 from nv2adbg.simulator import Step
@@ -41,10 +42,12 @@ class _CodePanel(ScrollView, can_focus=True):
         "codepanel--linenum",
         "codepanel--code",
         "codepanel--code-contributing-component",
+        "codepanel--code-input-component",
         "codepanel--selected-modifier",
         "codepanel--selected-linenum",
         "codepanel--selected-code",
         "codepanel--selected-code-contributing-component",
+        "codepanel--selected-code-input-component",
     }
 
     DEFAULT_CSS = """
@@ -71,6 +74,11 @@ class _CodePanel(ScrollView, can_focus=True):
         background: $background;
         color: $secondary;
     }
+    _CodePanel .codepanel--code-input-component {
+        background: $background;
+        color: $success;
+        text-style: underline;
+    }
 
     _CodePanel .codepanel--selected-modifier {
         background: $primary;
@@ -87,7 +95,12 @@ class _CodePanel(ScrollView, can_focus=True):
     }
     _CodePanel .codepanel--selected-code-contributing-component {
         background: $primary;
-        color: $secondary;
+        color: $secondary-lighten-1;
+    }
+    _CodePanel .codepanel--selected-code-input-component {
+        background: $primary;
+        color: $success-lighten-2;
+        text-style: underline;
     }
     """
 
@@ -197,35 +210,57 @@ class _CodePanel(ScrollView, can_focus=True):
     ) -> List[Segment]:
         source_style = self.get_component_rich_style(source_style_name)
 
-        if self.show_ancestors and step.index != self._ancestor_chain_root_step_index:
-            ancestors = self._get_ancestor_relationships(step)
-            if ancestors:
-                stage_ancestors = {"mac": [], "ilu": []}
-                for ancestor in ancestors:
-                    stage_ancestors[ancestor.mac_or_ilu].append(ancestor)
-
-                contributing_style = self.get_component_rich_style(
+        if self.show_ancestors:
+            if step.index == self._ancestor_chain_root_step_index:
+                contributed_style = self.get_component_rich_style(
                     source_style_name + "-contributing-component"
                 )
-                step_dict = step.to_dict()
-                segments = [
-                    _build_contributing_source_segments(
-                        step_dict["instruction"][stage],
-                        stage_ancestors[stage],
-                        source_style,
-                        contributing_style,
-                    )
-                    for stage in ["mac", "ilu"]
-                    if step_dict["instruction"][stage]
-                ]
+                input_style = self.get_component_rich_style(
+                    source_style_name + "-input-component"
+                )
+                return self._build_highlighted_input_source_segments(
+                    step, source_style, contributed_style, input_style
+                )
+            else:
+                ancestors = self._get_ancestor_relationships(step)
+                if ancestors:
+                    stage_ancestors = {"mac": [], "ilu": []}
+                    for ancestor in ancestors:
+                        stage_ancestors[ancestor.mac_or_ilu].append(ancestor)
 
-                flattened = segments[0]
-                for additional in segments[1:]:
-                    flattened.append(Segment(" + ", source_style))
-                    flattened.extend(additional)
-                return flattened
+                    contributing_style = self.get_component_rich_style(
+                        source_style_name + "-contributing-component"
+                    )
+                    step_dict = step.to_dict()
+                    segments = [
+                        _build_contributing_source_segments(
+                            step_dict["instruction"][stage],
+                            stage_ancestors[stage],
+                            source_style,
+                            contributing_style,
+                        )
+                        for stage in ["mac", "ilu"]
+                        if step_dict["instruction"][stage]
+                    ]
+                    return _flatten_composite_step_segments(segments, source_style)
 
         return [Segment(step.source, source_style)]
+
+    def _build_highlighted_input_source_segments(
+        self,
+        step: Step,
+        source_style: Style,
+        contributed_style: Style,
+        input_style: Style,
+    ) -> List[Segment]:
+        info = step.to_dict()
+        return _build_ancestor_root_segments(
+            info["instruction"],
+            self._highlighted_ancestors,
+            source_style,
+            contributed_style,
+            input_style,
+        )
 
     def _watch_cursor_pos(self, old_pos: int, new_pos: int) -> None:
         if not self._lines:
@@ -477,8 +512,105 @@ def _build_contributing_source_segments(
 
         ret.append(op)
 
-    flattened = ret[0]
-    for additional in ret[1:]:
-        flattened.append(source(" + "))
+    return _flatten_composite_step_segments(ret, source_style)
+
+
+def _build_ancestor_root_segments(
+    instruction: dict,
+    ancestors: Set[Ancestor],
+    source_style: Style,
+    contributed_style: Style,
+    input_style: Style,
+) -> List[Segment]:
+    def source(text: str) -> Segment:
+        return Segment(text, source_style)
+
+    def contrib(text: str) -> Segment:
+        return Segment(text, contributed_style)
+
+    def unsatisfied_input(text: str) -> Segment:
+        return Segment(text, input_style)
+
+    def contributed_components(register_name: str) -> Set[str]:
+        """Returns a set of mask elements contributed by ancestors."""
+        ret = set()
+        for ancestor in ancestors:
+            for register, mask in ancestor.components:
+                if register == register_name:
+                    ret |= set(mask)
+        return ret
+
+    def build_inputs(inputs: List[str]) -> List[Segment]:
+        ret = []
+        for idx, input in enumerate(inputs):
+            if idx:
+                ret.append(source(", "))
+
+            if input[0] == "-":
+                ret.append(source("-"))
+                input = input[1:]
+            reg_and_mask = input.split(".")
+            raw_register_name = reg_and_mask[0]
+            register_name = canonicalize_register_name(raw_register_name)
+            contributed_mask = contributed_components(register_name)
+
+            if len(contributed_mask) == 4:
+                # All components were contributed, so the entire reg is contributed.
+                ret.append(contrib(input))
+            elif not contributed_mask:
+                # No components were contributed, so the entire reg is an input.
+                ret.append(unsatisfied_input(input))
+            else:
+                if len(reg_and_mask) == 1:
+                    mask = "xyzw"
+                else:
+                    mask = reg_and_mask[1]
+
+                has_unsatisfied = False
+                component_segments = []
+                for component in mask:
+                    if component in contributed_mask:
+                        component_segments.append(contrib(component))
+                    else:
+                        component_segments.append(unsatisfied_input(component))
+                        has_unsatisfied = True
+
+                if has_unsatisfied:
+                    ret.append(unsatisfied_input(raw_register_name))
+                else:
+                    ret.append(contrib(raw_register_name))
+                ret.append(source("."))
+                ret.extend(component_segments)
+
+        return ret
+
+    def _build_ancestor_root_stage(mac_or_ilu: str) -> List[List[Segment]]:
+        info = instruction.get(mac_or_ilu)
+        if not info:
+            return []
+
+        ret = []
+        for output in info["outputs"]:
+            op = [source(info["mnemonic"])]
+            op.append(source(" "))
+            op.append(source(output))
+            op.append(source(", "))
+
+            op.extend(build_inputs(info["inputs"]))
+            ret.append(op)
+
+        return ret
+
+    segments = _build_ancestor_root_stage("mac")
+    segments.extend(_build_ancestor_root_stage("ilu"))
+    return _flatten_composite_step_segments(segments, source_style)
+
+
+def _flatten_composite_step_segments(
+    segments: List[List[Segment]], join_style: Style
+) -> List[Segment]:
+    flattened = segments[0]
+    for additional in segments[1:]:
+        flattened.append(Segment(" + ", join_style))
         flattened.extend(additional)
     return flattened

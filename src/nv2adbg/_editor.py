@@ -1,6 +1,5 @@
 """Provides functionality to render the editor."""
 
-import re
 from typing import Dict
 from typing import Optional
 from typing import Set
@@ -17,21 +16,6 @@ from nv2adbg import simulator
 from nv2adbg._code_panel import _CodePanel
 from nv2adbg._input_panel import _InputPanel
 from nv2adbg._output_panel import _OutputPanel
-
-# c[12]
-# -R1.xyz
-# oD0.w
-_RAW_REGISTER_RE = re.compile(r"-?(.+?)(?:\.(.*))?$")
-
-# Mapping of register name to a set of the masked components
-RegisterDictT = Dict[str, Set[str]]
-
-_WRITEMASK = {
-    "x": 0,
-    "y": 1,
-    "z": 2,
-    "w": 3,
-}
 
 
 class _Editor(Static):
