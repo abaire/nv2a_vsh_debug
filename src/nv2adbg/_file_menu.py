@@ -1,15 +1,18 @@
 """Provides functionality to render the File menu."""
-
+import os.path
 from typing import Callable
 
+from textual import on
 from textual.app import ComposeResult
 from textual.containers import Center
 from textual.containers import Horizontal
-from textual.reactive import Reactive
 from textual.screen import ModalScreen
 from textual.widgets import Button
 from textual.widgets import Input
 from textual.widgets import Label
+
+from textual.validation import ValidationResult
+from textual.validation import Validator
 
 
 class _FileMenu(ModalScreen):
@@ -22,6 +25,7 @@ class _FileMenu(ModalScreen):
         layout: grid;
         grid-columns: 28 1fr;
         grid-size: 2;
+        background: black;
     }
 
     _FileMenu .label {
@@ -51,10 +55,34 @@ class _FileMenu(ModalScreen):
         self._mesh_inputs_file = mesh_inputs_file
         self._constants_file = constants_file
 
+        self._apply_button = Button(
+            "Apply", variant="primary", id="apply", disabled=True
+        )
+
+    def on_mount(self) -> None:
+        self._check_validation()
+
+    def _check_validation(self):
+        self._apply_button.disabled = any(
+            [not i.validate(i.value).is_valid for i in self.query(Input)]
+        )
+
+    @on(Input.Changed)
+    def _update_validation(self, event: Input.Changed) -> None:
+        if not event.validation_result.is_valid:
+            self._apply_button.disabled = True
+        else:
+            self._check_validation()
+
     def compose(self) -> ComposeResult:
-        def _row(input_id: str, label: str, placeholder: str, value: Reactive):
+        def _row(input_id: str, label: str, placeholder: str, value: str):
             yield Label(label, classes="label")
-            yield Input(placeholder=placeholder, value=value, id=input_id)
+            yield Input(
+                placeholder=placeholder,
+                value=value,
+                id=input_id,
+                validators=[ExistingFile()],
+            )
 
         yield from _row(
             "source",
@@ -83,7 +111,7 @@ class _FileMenu(ModalScreen):
 
         with Horizontal(id="buttonbar"):
             yield Center(Button("Cancel", id="cancel"))
-            yield Center(Button("Apply", variant="primary", id="apply"))
+            yield Center(self._apply_button)
 
     def _on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "apply":
@@ -98,3 +126,15 @@ class _FileMenu(ModalScreen):
 
     def _action_cancel(self):
         self._on_cancel()
+
+
+class ExistingFile(Validator):
+    """Validator to confirm that a string is the path to a valid file."""
+
+    def validate(self, value: str) -> ValidationResult:
+        """Check that a string points at a valid file."""
+
+        if not value or os.path.isfile(value):
+            return self.success()
+        else:
+            return self.failure("No such file")

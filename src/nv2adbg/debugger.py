@@ -7,15 +7,15 @@ import json
 import logging
 import os
 import sys
+from typing import Optional
 
 from textual.app import App
 from textual.app import ComposeResult
 from textual.containers import Grid
-from textual.screen import Screen
+from textual.screen import ModalScreen
 from textual.widgets import Footer
 from textual.widgets import Header
 from textual.widgets import Label
-from textual.widgets import Placeholder
 from textual.widgets import TabbedContent
 from textual.widgets import TabPane
 
@@ -25,6 +25,51 @@ from nv2adbg._file_menu import _FileMenu
 from nv2adbg._program_inputs_viewer import _ProgramInputsViewer
 from nv2adbg._program_outputs_viewer import _ProgramOutputsViewer
 from nv2adbg._shader_program import _ShaderProgram
+
+
+class _NoTraceErrorScreen(ModalScreen):
+    """Screen used to display message when there is no trace."""
+
+    DEFAULT_CSS = """
+    _NoTraceErrorScreen {
+        align: center middle;
+    }
+
+    #dialog {
+        grid-size: 2;
+        grid-gutter: 1 2;
+        grid-rows: 1fr 3;
+        padding: 0 1;
+        min-width: 60;
+        min-height: 11;
+        border: thick $background 80%;
+        background: $surface;
+    }
+
+    #message {
+        column-span: 2;
+        height: 1fr;
+        width: 1fr;
+        content-align: center middle;
+    }
+    """
+
+    BINDINGS = [
+        ("f1", "app.open_file", "File menu"),
+        ("f10", "app.toggle_dark", "Toggle dark mode"),
+        ("escape,q", "app.quit", "Quit"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Grid(
+            Label(
+                "No trace available, load a source file via the File menu.",
+                id="message",
+            ),
+            id="dialog",
+        )
+        yield Footer()
 
 
 class _App(App):
@@ -50,7 +95,6 @@ class _App(App):
         self._editor = _Editor()
         self._program_inputs = _ProgramInputsViewer()
         self._program_outputs = _ProgramOutputsViewer()
-        self._load_program()
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -92,10 +136,17 @@ class _App(App):
             )
         )
 
+    def on_mount(self) -> None:
+        self._load_program()
+
     def _load_program(self):
         if not self._program.loaded:
             self.sub_title = ""
+            if not isinstance(self.screen, _NoTraceErrorScreen):
+                self.push_screen(_NoTraceErrorScreen(id="notraceerror"))
             return
+        if isinstance(self.screen, _NoTraceErrorScreen):
+            self.pop_screen()
         self.sub_title = self._program.source_file
         self._program.build_shader()
         self.set_shader_trace(self._program.shader_trace)
