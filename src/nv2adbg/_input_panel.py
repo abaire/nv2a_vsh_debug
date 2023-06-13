@@ -1,6 +1,7 @@
 """Provides a widget to render inputs to a simulator.Step."""
 
 from typing import List
+from typing import Optional
 
 from rich.console import RenderableType
 from rich.layout import Layout
@@ -16,6 +17,11 @@ from nv2adbg.simulator import Step
 
 class _InputPanel(Static):
     """Renders inputs for a single step in the shader."""
+
+    def __init__(self):
+        super().__init__()
+
+        self._step: Optional[Step] = None
 
     def set_step(self, step: Step):
         self._step = step

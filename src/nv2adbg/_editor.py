@@ -49,26 +49,14 @@ class _Editor(Static):
     def set_shader_trace(self, shader_trace: simulator.Trace):
         self._trace = shader_trace
         self._code_panel.set_shader_trace(shader_trace)
-        pass
 
     def compose(self) -> ComposeResult:
-        if self._trace:
-            with Vertical():
-                with Horizontal():
-                    yield self._code_panel
-                    yield self._input_panel
-                yield self._output_panel
-            self._code_panel.focus()
-        else:
-            yield Middle(
-                Center(
-                    Label(
-                        "No trace available, load a source file via the File menu.",
-                        id="empty_message",
-                    )
-                ),
-                id="center_message",
-            )
+        with Vertical():
+            with Horizontal():
+                yield self._code_panel
+                yield self._input_panel
+            yield self._output_panel
+        self._code_panel.focus()
 
     def on__code_panel_active_line_changed(
         self, message: _CodePanel.ActiveLineChanged
