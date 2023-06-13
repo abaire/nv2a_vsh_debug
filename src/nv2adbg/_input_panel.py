@@ -18,10 +18,44 @@ from nv2adbg.simulator import Step
 class _InputPanel(Static):
     """Renders inputs for a single step in the shader."""
 
+    COMPONENT_CLASSES = {
+        "inputpanel--register",
+        "inputpanel--register-unused",
+        "inputpanel--value",
+        "inputpanel--value-unused",
+    }
+
+    DEFAULT_CSS = """
+    _InputPanel .inputpanel--register {
+        color: $text;
+        text-style: bold;
+    }
+    _InputPanel .inputpanel--register-unused {
+        color: $text;
+    }
+    _InputPanel .inputpanel--value {
+        color: $success;
+        text-style: bold;
+    }
+    _InputPanel .inputpanel--value-unused {
+        color: $error;
+    }
+    """
+
     def __init__(self):
         super().__init__()
 
         self._step: Optional[Step] = None
+
+    def on_mount(self) -> None:
+        self._register_style = self.get_component_rich_style("inputpanel--register")
+        self._muted_register_style = self.get_component_rich_style(
+            "inputpanel--register-unused"
+        )
+        self._value_style = self.get_component_rich_style("inputpanel--value")
+        self._muted_value_style = self.get_component_rich_style(
+            "inputpanel--value-unused"
+        )
 
     def set_step(self, step: Step):
         self._step = step
@@ -31,7 +65,6 @@ class _InputPanel(Static):
         if not self._step:
             renderable = ""
         else:
-            self._update_styled_colors()
             inputs = self._step.inputs
 
             column_content_width = (self.size.width - 2) // len(inputs)
@@ -66,7 +99,7 @@ class _InputPanel(Static):
 
         ret = Layout()
         ret.split_column(
-            Layout(Text(stage_name, "bold"), size=1),
+            Layout(Text(stage_name, "underline"), size=1),
             register_layout,
         )
         return ret
@@ -96,15 +129,6 @@ class _InputPanel(Static):
         ret.append(Text(f" {w}", get_value_style("w")))
 
         return ret
-
-    def _update_styled_colors(self):
-        theme = self.app.get_css_variables()
-        muted_suffix = "darken-2" if self.app.dark else "lighten-1"
-
-        self._register_style = Style.parse(theme.get("success"))
-        self._muted_register_style = Style.parse(theme.get(f"success-{muted_suffix}"))
-        self._value_style = Style.parse(theme.get("success"))
-        self._muted_value_style = Style.parse(theme.get(f"success-{muted_suffix}"))
 
 
 def _dedup_registers(registers: List[RegisterReference]) -> List[RegisterReference]:
