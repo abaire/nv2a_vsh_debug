@@ -20,10 +20,44 @@ from nv2adbg.simulator import Step
 class _OutputPanel(Static):
     """Renders outputs for a single step in the shader."""
 
+    COMPONENT_CLASSES = {
+        "outputpanel--register",
+        "outputpanel--register-unused",
+        "outputpanel--value",
+        "outputpanel--value-unused",
+    }
+
+    DEFAULT_CSS = """
+    _OutputPanel .outputpanel--register {
+        color: $text;
+        text-style: bold;
+    }
+    _OutputPanel .outputpanel--register-unused {
+        color: $text;
+    }
+    _OutputPanel .outputpanel--value {
+        color: $success;
+        text-style: bold;
+    }
+    _OutputPanel .outputpanel--value-unused {
+        color: $error;
+    }
+    """
+
     def __init__(self):
         super().__init__()
 
         self._step: Optional[Step] = None
+
+    def on_mount(self) -> None:
+        self._register_style = self.get_component_rich_style("outputpanel--register")
+        self._muted_register_style = self.get_component_rich_style(
+            "outputpanel--register-unused"
+        )
+        self._value_style = self.get_component_rich_style("outputpanel--value")
+        self._muted_value_style = self.get_component_rich_style(
+            "outputpanel--value-unused"
+        )
 
     def set_step(self, step: Step):
         self._step = step
@@ -40,23 +74,24 @@ class _OutputPanel(Static):
 
     def render(self) -> RenderableType:
         if not self._step:
-            composables = [""]
+            stages = ""
         else:
+            stages = Table.grid(expand=True)
+            stages.add_column(ratio=1)
+            stages.add_column(ratio=1)
+
             outputs = self._step.outputs
-            composables = [
-                self._render_register_values(stage, outputs[stage])
-                for stage in sorted(outputs.keys(), reverse=True)
-            ]
+            stages.add_row(
+                *[
+                    self._render_register_values(stage, outputs[stage])
+                    for stage in sorted(outputs.keys(), reverse=True)
+                ]
+            )
 
         layout = Layout()
         layout.split_column(
             Rule("Outputs"),
-            Layout(
-                Columns(
-                    composables,
-                    expand=True,
-                ),
-            ),
+            Layout(stages),
         )
         return layout
 
@@ -74,27 +109,20 @@ class _OutputPanel(Static):
         inner.add_column()
         inner.add_column()
 
-        theme = self.app.get_css_variables()
-        muted_suffix = "darken-2" if self.app.dark else "lighten-1"
-        register_style = Style.parse(theme.get("success"))
-        muted_register_style = Style.parse(theme.get(f"success-{muted_suffix}"))
-        value_style = Style.parse(theme.get("success"))
-        muted_value_style = Style.parse(theme.get(f"success-{muted_suffix}"))
-
         state = self._step.state
 
         for register in registers:
-            elements = [(register.raw_name, register_style)]
+            elements = [(register.raw_name, self._register_style)]
             if register.sorted_mask != "xyzw":
-                elements.append((".", muted_register_style))
-                elements.append((register.sorted_mask, register_style))
+                elements.append((".", self._muted_register_style))
+                elements.append((register.sorted_mask, self._register_style))
             row = [Text.assemble(*elements)]
 
             def get_value_style(component: str) -> Style:
                 return (
-                    value_style
+                    self._value_style
                     if component in register.sorted_mask
-                    else muted_value_style
+                    else self._muted_value_style
                 )
 
             x, y, z, w = state.get(f"{register.canonical_name}")
@@ -105,5 +133,5 @@ class _OutputPanel(Static):
 
             inner.add_row(*row)
 
-        outer.add_row(Text(f"{stage_name}: ", style="bold"), inner)
+        outer.add_row(Text.assemble((stage_name, "underline"), (": ", "")), inner)
         return outer
