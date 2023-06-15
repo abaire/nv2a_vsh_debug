@@ -3,6 +3,7 @@
 from typing import Optional
 
 from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.css import query
 from textual.reactive import reactive
 from textual.widgets import ContentSwitcher
@@ -33,6 +34,16 @@ class _ProgramInputsViewer(Static):
         super().__init__()
         self._context: Optional[simulator.Context] = None
 
+        self._inputs_table = DataTable(id="inputs-table")
+        self._inputs_table.add_columns("Input", "x", "y", "z", "w")
+        self._inputs_table.cursor_type = "row"
+        self._inputs_table.zebra_stripes = True
+
+        self._constants_table = DataTable(id="constants-table")
+        self._constants_table.add_columns("Constant", "x", "y", "z", "w")
+        self._constants_table.cursor_type = "row"
+        self._constants_table.zebra_stripes = True
+
     def set_context(self, context: simulator.Context):
         self._context = context
         self._populate_table()
@@ -43,12 +54,9 @@ class _ProgramInputsViewer(Static):
 
     def compose(self) -> ComposeResult:
         with ContentSwitcher(initial="no-content"):
-            table = DataTable(id="data-table")
-            table.add_columns("Register", "x", "y", "z", "w")
-            table.cursor_type = "row"
-            table.zebra_stripes = True
-            table.focus()
-            yield table
+            with Horizontal(id="content"):
+                yield self._inputs_table
+                yield self._constants_table
 
             yield _CenteredErrorMessage(
                 "No input context available, load data via the File menu.",
@@ -57,15 +65,19 @@ class _ProgramInputsViewer(Static):
 
     def _populate_table(self):
         try:
-            table = self.query_one(DataTable)
-            table.clear()
+            self._inputs_table.clear()
+            self._constants_table.clear()
 
             if self._context:
-                for register in self._context.constants:
-                    table.add_row(
+                for register in self._context.inputs:
+                    self._inputs_table.add_row(
                         register.name, register.x, register.y, register.z, register.w
                     )
-                self._active_content = "data-table"
+                for register in self._context.constants:
+                    self._constants_table.add_row(
+                        register.name, register.x, register.y, register.z, register.w
+                    )
+                self._active_content = "content"
             else:
                 self._active_content = "no-content"
 
