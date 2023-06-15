@@ -3,7 +3,10 @@
 import csv
 import json
 import re
-from typing import Iterable, Optional
+from typing import Dict
+from typing import Iterable
+from typing import List
+from typing import Optional
 
 from nv2adbg import simulator
 
@@ -32,6 +35,9 @@ class _ShaderProgram:
         """
         self._shader = None
         self._shader_trace = None
+
+        self._vertex_inputs: List[Dict] = []
+        self._active_vertex: Optional[Dict] = None
 
         self.inputs_file = inputs_json_file
         self.mesh_inputs_file = renderdoc_mesh_csv
@@ -85,13 +91,21 @@ class _ShaderProgram:
     @mesh_inputs_file.setter
     def mesh_inputs_file(self, val: str):
         self._renderdoc_mesh_csv = val
-        self._mesh = []
+        self._vertex_inputs.clear()
+        self._active_vertex = None
         if val:
             with open(val, newline="", encoding="ascii") as csvfile:
-                reader = csv.DictReader(csvfile)
-                row = next(reader)
-                row = {key.strip(): val.strip() for key, val in row.items()}
-                self._mesh.append(row)
+                for row in csv.DictReader(csvfile):
+                    if not row:
+                        break
+                    row = {key.strip(): val.strip() for key, val in row.items()}
+                    self._vertex_inputs.append(row)
+            if self._vertex_inputs:
+                self._active_vertex = self._vertex_inputs[0]
+
+    @property
+    def vertex_inputs(self):
+        return self._vertex_inputs
 
     @property
     def constants_file(self) -> str:
@@ -106,12 +120,21 @@ class _ShaderProgram:
         else:
             self._constants = []
 
+    def set_active_vertex_index(self, index: int) -> bool:
+        """Selects a new vertex to use as inputs. Returns True if the shader was rebuilt as a result."""
+        active_vertex = self._vertex_inputs[index]
+        if active_vertex == self._active_vertex:
+            return False
+
+        self._active_vertex = active_vertex
+        self.build_shader()
+        return True
+
     def build_shader(self):
         self._shader = simulator.Shader()
         self._shader.set_initial_state(self._inputs)
 
-        for row in self._mesh:
-            _merge_inputs(row, self._shader)
+        _merge_inputs(self._active_vertex, self._shader)
 
         if self._constants:
             _merge_constants(self._constants, self._shader)
