@@ -2,7 +2,7 @@ Simulator/debugger for the original Xbox nv2a vertex shader.
 
 # Use
 
-Run with `--help` to see command line options.
+Run `nv2adbg` with `--help` to see command line options.
 
 ## Menus
 
