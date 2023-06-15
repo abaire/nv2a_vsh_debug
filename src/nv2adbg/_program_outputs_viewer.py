@@ -1,12 +1,8 @@
 """Provides functionality to browse the end state of the shader."""
 
-from typing import Callable
 from typing import List
 from typing import Optional
 
-from rich.console import RenderableType
-from rich.panel import Panel
-from rich.text import Text
 from textual.app import Binding
 from textual.app import ComposeResult
 from textual.css import query
@@ -15,7 +11,7 @@ from textual.widgets import ContentSwitcher
 from textual.widgets import Static
 
 from nv2adbg._error_message import _CenteredErrorMessage
-from nv2adbg._register_view import layout_register_lines
+from nv2adbg._register_view import _RegisterSetPanel
 from nv2adbg.simulator import Context
 from nv2adbg.simulator import Register
 
@@ -32,65 +28,6 @@ _OUTPUT_REGISTER_TO_FRIENDLY_NAME = {
     "o11": "oT2",
     "o12": "oT3",
 }
-
-
-class _RegisterSetPanel(Static):
-    COMPONENT_CLASSES = {
-        "registersetpanel--register",
-        "registersetpanel--value",
-    }
-
-    DEFAULT_CSS = """
-    _RegisterSetPanel .registersetpanel--register {
-        background: $surface;
-        color: $text;
-    }
-    _RegisterSetPanel .registersetpanel--value {
-        background: $surface;
-        color: $text;
-    }
-    """
-
-    def __init__(self, title: str):
-        super().__init__()
-        self._title = title
-        self._registers = None
-        self._name_modifier = None
-
-    def set_registers(
-        self,
-        registers: List[Register],
-        name_modifier: Optional[Callable[[str], str]] = None,
-    ):
-        self._registers = registers
-        self._name_modifier = name_modifier
-
-    def render(self) -> RenderableType:
-        register_lines = [self._build_renderables(r) for r in self._registers]
-        if not register_lines:
-            return ""
-        content = layout_register_lines(register_lines, self.size.width)
-        return Panel(content, title=self._title)
-
-    def _build_renderables(self, register: Register) -> List[Text]:
-        ret = [
-            Text.assemble(
-                (
-                    self._name_modifier(register.name)
-                    if self._name_modifier
-                    else register.name,
-                    self.get_component_rich_style("registersetpanel--register"),
-                )
-            )
-        ]
-
-        value_style = self.get_component_rich_style("registersetpanel--value")
-        ret.append(Text(f" {register.x}", value_style))
-        ret.append(Text(f" {register.y}", value_style))
-        ret.append(Text(f" {register.z}", value_style))
-        ret.append(Text(f" {register.w}", value_style))
-
-        return ret
 
 
 class _ProgramOutputsViewer(Static):
