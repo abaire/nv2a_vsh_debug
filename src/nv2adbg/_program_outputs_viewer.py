@@ -4,17 +4,17 @@ from typing import Callable
 from typing import List
 from typing import Optional
 
-from textual.app import Binding
-from textual.app import ComposeResult
 from rich.console import RenderableType
 from rich.panel import Panel
 from rich.text import Text
-from textual.containers import Center
-from textual.containers import Middle
+from textual.app import Binding
+from textual.app import ComposeResult
+from textual.css import query
 from textual.containers import VerticalScroll
-from textual.widgets import Label
+from textual.widgets import ContentSwitcher
 from textual.widgets import Static
 
+from nv2adbg._error_message import _CenteredErrorMessage
 from nv2adbg._register_view import layout_register_lines
 from nv2adbg.simulator import Context
 from nv2adbg.simulator import Register
@@ -101,17 +101,6 @@ class _ProgramOutputsViewer(Static):
         height: 1fr;
         width: 1fr;
     }
-
-    #center_message {
-        height: 1fr;
-        width: 1fr;
-    }
-
-    #empty_message {
-        border: double $error;
-        padding: 2 4;
-        content-align: center middle;
-    }
     """
 
     BINDINGS = [
@@ -129,7 +118,7 @@ class _ProgramOutputsViewer(Static):
         self._input_context: Optional[Context] = None
         self._output_context: Optional[Context] = None
 
-        self._scroll_area = VerticalScroll()
+        self._scroll_area = VerticalScroll(id="content")
         self._outputs_panel = _RegisterSetPanel("Outputs")
         self._constants_panel = _RegisterSetPanel("Constants")
         self._temps_panel = _RegisterSetPanel("Temp registers")
@@ -161,26 +150,41 @@ class _ProgramOutputsViewer(Static):
         self._temps_panel.display = bool(temps)
 
         self._address_panel.set_registers([output_context.address])
+        try:
+            self.query_one(ContentSwitcher).current = self._activeContentId
+        except query.NoMatches:
+            # Ignore context being set prior to composition.
+            pass
+
         self.update()
 
-    def compose(self) -> ComposeResult:
+    @property
+    def _activeContentId(self) -> str:
         if not self._input_context:
-            yield from _compose_error_mesasge(
-                "No input context available, load data via the File menu."
-            )
-            return
+            return "no-input-context"
 
         if not self._output_context:
-            yield from _compose_error_mesasge(
-                "No output context available, simulation failed."
-            )
-            return
+            return "no-output-context"
+        return "content"
 
-        with self._scroll_area:
-            yield self._outputs_panel
-            yield self._constants_panel
-            yield self._temps_panel
-            yield self._address_panel
+    def compose(self) -> ComposeResult:
+
+        with ContentSwitcher(initial=self._activeContentId):
+            yield _CenteredErrorMessage(
+                "No input context available, load data via the File menu.",
+                id="no-input-context",
+            )
+
+            yield _CenteredErrorMessage(
+                "No output context available, simulation failed.",
+                id="no-output-context",
+            )
+
+            with self._scroll_area:
+                yield self._outputs_panel
+                yield self._constants_panel
+                yield self._temps_panel
+                yield self._address_panel
 
     def _action_cursor_up(self):
         self._scroll_area.scroll_up()
@@ -199,18 +203,6 @@ class _ProgramOutputsViewer(Static):
 
     def _action_cursor_end(self):
         self._scroll_area.scroll_end()
-
-
-def _compose_error_mesasge(text: str) -> ComposeResult:
-    yield Middle(
-        Center(
-            Label(
-                text,
-                id="empty_message",
-            )
-        ),
-        id="center_message",
-    )
 
 
 def _filter_unchanged(old: List[Register], new: List[Register]) -> List[Register]:
