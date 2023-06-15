@@ -7,69 +7,23 @@ import json
 import logging
 import os
 import sys
-from typing import Optional
 
 from textual.app import App
 from textual.app import ComposeResult
-from textual.containers import Grid
-from textual.screen import ModalScreen
+from textual.reactive import reactive
+from textual.widgets import ContentSwitcher
 from textual.widgets import Footer
 from textual.widgets import Header
-from textual.widgets import Label
 from textual.widgets import TabbedContent
 from textual.widgets import TabPane
 
 from nv2adbg import simulator
 from nv2adbg._editor import _Editor
+from nv2adbg._error_message import _CenteredErrorMessage
 from nv2adbg._file_menu import _FileMenu
 from nv2adbg._program_inputs_viewer import _ProgramInputsViewer
 from nv2adbg._program_outputs_viewer import _ProgramOutputsViewer
 from nv2adbg._shader_program import _ShaderProgram
-
-
-class _NoTraceErrorScreen(ModalScreen):
-    """Screen used to display message when there is no trace."""
-
-    DEFAULT_CSS = """
-    _NoTraceErrorScreen {
-        align: center middle;
-    }
-
-    #dialog {
-        grid-size: 2;
-        grid-gutter: 1 2;
-        grid-rows: 1fr 3;
-        padding: 0 1;
-        min-width: 60;
-        min-height: 11;
-        border: thick $background 80%;
-        background: $surface;
-    }
-
-    #message {
-        column-span: 2;
-        height: 1fr;
-        width: 1fr;
-        content-align: center middle;
-    }
-    """
-
-    BINDINGS = [
-        ("f1", "app.open_file", "File menu"),
-        ("f10", "app.toggle_dark", "Toggle dark mode"),
-        ("escape,q", "app.quit", "Quit"),
-    ]
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield Grid(
-            Label(
-                "No trace available, load a source file via the File menu.",
-                id="message",
-            ),
-            id="dialog",
-        )
-        yield Footer()
 
 
 class _App(App):
@@ -89,23 +43,34 @@ class _App(App):
     }
     """
 
+    _active_content = reactive("no-content", init=False)
+
     def __init__(self, program: _ShaderProgram):
         super().__init__()
         self._program = program
         self._editor = _Editor()
         self._program_inputs = _ProgramInputsViewer()
         self._program_outputs = _ProgramOutputsViewer()
+        self._editor_content_switcher = ContentSwitcher(initial=self._active_content)
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        with TabbedContent():
-            with TabPane("Editor"):
-                yield self._editor
-            with TabPane("Inputs"):
-                yield self._program_inputs
-            with TabPane("Outputs"):
-                yield self._program_outputs
+
+        with self._editor_content_switcher:
+            yield _CenteredErrorMessage(
+                "No trace available, load a source file via the File menu.",
+                id="no-content",
+            )
+
+            with TabbedContent(id="content"):
+                with TabPane("Editor"):
+                    yield self._editor
+                with TabPane("Inputs"):
+                    yield self._program_inputs
+                with TabPane("Outputs"):
+                    yield self._program_outputs
+
         yield Footer()
 
     def action_open_file(self) -> None:
@@ -119,8 +84,8 @@ class _App(App):
             self._program.inputs_file = inputs_file
             self._program.mesh_inputs_file = mesh_inputs_file
             self._program.constants_file = constants_file
-            self.pop_screen()
             self._load_program()
+            self.pop_screen()
 
         def on_cancel():
             self.pop_screen()
@@ -142,14 +107,13 @@ class _App(App):
     def _load_program(self):
         if not self._program.loaded:
             self.sub_title = ""
-            if not isinstance(self.screen, _NoTraceErrorScreen):
-                self.push_screen(_NoTraceErrorScreen(id="notraceerror"))
+            self._active_content = "no-content"
             return
-        if isinstance(self.screen, _NoTraceErrorScreen):
-            self.pop_screen()
+
         self.sub_title = self._program.source_file
         self._program.build_shader()
         self.set_shader_trace(self._program.shader_trace)
+        self._active_content = "content"
 
     def set_shader_trace(self, shader_trace: simulator.Trace):
         self._editor.set_shader_trace(shader_trace)
@@ -158,20 +122,25 @@ class _App(App):
             shader_trace.input_context, shader_trace.output_context
         )
 
-    # def _export(self):
-    #     # TODO: Pop a text input dialog and capture a filename.
-    #     filename = ""
-    #     for index in range(1000):
-    #         filename = f"export{index:04}.vsh"
-    #         if not os.path.exists(filename):
-    #             break
-    #     if os.path.exists(filename):
-    #         raise Exception("Failed to find an unused export filename.")
-    #
-    #     def resolve(input):
-    #         return self._program.shader.initial_state.get(input)
-    #
-    #     self._editor.export(filename, resolve)
+    def _watch__active_content(self, _old_val: str, new_val: str):
+        del _old_val
+        self._editor_content_switcher.current = new_val
+
+
+# def _export(self):
+#     # TODO: Pop a text input dialog and capture a filename.
+#     filename = ""
+#     for index in range(1000):
+#         filename = f"export{index:04}.vsh"
+#         if not os.path.exists(filename):
+#             break
+#     if os.path.exists(filename):
+#         raise Exception("Failed to find an unused export filename.")
+#
+#     def resolve(input):
+#         return self._program.shader.initial_state.get(input)
+#
+#     self._editor.export(filename, resolve)
 
 
 def _emit_input_template():
