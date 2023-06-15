@@ -1,10 +1,83 @@
 """Provides functions to lay out information about a single register."""
 
+from typing import Callable
 from typing import List
+from typing import Optional
 from typing import Tuple
 
+from rich.console import RenderableType
+from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from textual.widgets import Static
+
+from nv2adbg.simulator import Register
+
+
+class _RegisterSetPanel(Static):
+    COMPONENT_CLASSES = {
+        "registersetpanel--register",
+        "registersetpanel--value",
+        "registersetpanel--border",
+    }
+
+    DEFAULT_CSS = """
+    _RegisterSetPanel .registersetpanel--register {
+        background: $surface;
+        color: $text;
+    }
+    _RegisterSetPanel .registersetpanel--value {
+        background: $surface;
+        color: $text;
+    }
+    _RegisterSetPanel .registersetpanel--border {
+    }
+    """
+
+    def __init__(self, title: str, **kwargs):
+        super().__init__(**kwargs)
+        self._title = title
+        self._registers = None
+        self._name_modifier = None
+
+    def set_registers(
+        self,
+        registers: List[Register],
+        name_modifier: Optional[Callable[[str], str]] = None,
+    ):
+        self._registers = registers
+        self._name_modifier = name_modifier
+
+    def render(self) -> RenderableType:
+        register_lines = [self._build_renderables(r) for r in self._registers]
+        if not register_lines:
+            return ""
+        content = layout_register_lines(register_lines, self.size.width)
+        return Panel(
+            content,
+            title=self._title,
+            border_style=self.get_component_rich_style("registersetpanel--border"),
+        )
+
+    def _build_renderables(self, register: Register) -> List[Text]:
+        ret = [
+            Text.assemble(
+                (
+                    self._name_modifier(register.name)
+                    if self._name_modifier
+                    else register.name,
+                    self.get_component_rich_style("registersetpanel--register"),
+                )
+            )
+        ]
+
+        value_style = self.get_component_rich_style("registersetpanel--value")
+        ret.append(Text(f" {register.x}", value_style))
+        ret.append(Text(f" {register.y}", value_style))
+        ret.append(Text(f" {register.z}", value_style))
+        ret.append(Text(f" {register.w}", value_style))
+
+        return ret
 
 
 def layout_register_lines(register_lines: List[List[Text]], max_width: int) -> Table:
