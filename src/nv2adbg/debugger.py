@@ -23,6 +23,7 @@ from nv2adbg._error_message import _CenteredErrorMessage
 from nv2adbg._file_menu import _FileMenu
 from nv2adbg._program_inputs_viewer import _ProgramInputsViewer
 from nv2adbg._program_outputs_viewer import _ProgramOutputsViewer
+from nv2adbg._program_vertex_viewer import _ProgramVertexViewer
 from nv2adbg._shader_program import _ShaderProgram
 
 
@@ -51,6 +52,7 @@ class _App(App):
         self._editor = _Editor()
         self._program_inputs = _ProgramInputsViewer()
         self._program_outputs = _ProgramOutputsViewer()
+        self._program_vertices = _ProgramVertexViewer()
         self._editor_content_switcher = ContentSwitcher(initial=self._active_content)
 
     def compose(self) -> ComposeResult:
@@ -70,6 +72,8 @@ class _App(App):
                     yield self._program_inputs
                 with TabPane("Outputs"):
                     yield self._program_outputs
+                with TabPane("Vertices"):
+                    yield self._program_vertices
 
         yield Footer()
 
@@ -108,12 +112,14 @@ class _App(App):
         if not self._program.loaded:
             self.sub_title = ""
             self._active_content = "no-content"
+            self._program_vertices.set_program(None)
             return
 
         self.sub_title = self._program.source_file
         self._program.build_shader()
         self.set_shader_trace(self._program.shader_trace)
         self._active_content = "content"
+        self._program_vertices.set_program(self._program)
 
     def set_shader_trace(self, shader_trace: simulator.Trace):
         self._editor.set_shader_trace(shader_trace)
@@ -125,6 +131,12 @@ class _App(App):
     def _watch__active_content(self, _old_val: str, new_val: str):
         del _old_val
         self._editor_content_switcher.current = new_val
+
+    def _on__program_vertex_viewer_active_vertex_changed(
+        self, event: _ProgramVertexViewer.ActiveVertexChanged
+    ):
+        del event
+        self.set_shader_trace(self._program.shader_trace)
 
 
 # def _export(self):
