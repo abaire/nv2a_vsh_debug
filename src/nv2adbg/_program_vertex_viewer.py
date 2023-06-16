@@ -103,19 +103,13 @@ class _ProgramVertexViewer(Static):
                 self._active_content = "no-content"
                 return
 
-            deduped_vertices = {}
-            for vertex in self._program.vertex_inputs:
-                deduped_vertices[int(vertex["IDX"])] = vertex
+            ordered_vertices = self._program.get_deduped_ordered_vertices()
 
-            for row, vertex_idx in enumerate(sorted(deduped_vertices.keys())):
-                vertex = deduped_vertices[vertex_idx]
+            for row, vertex in enumerate(ordered_vertices):
                 self._row_index_to_vertex_id[row] = int(vertex["VTX"])
                 self._vertex_table.add_row(
-                    vertex_idx,
-                    *[
-                        _render_vertex(deduped_vertices[vertex_idx], f"v{idx}")
-                        for idx in range(0, 16)
-                    ],
+                    vertex["IDX"],
+                    *[_render_vertex(vertex, f"v{idx}") for idx in range(0, 16)],
                 )
 
             self._active_content = "content"

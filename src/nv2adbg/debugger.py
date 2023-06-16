@@ -139,22 +139,6 @@ class _App(App):
         self.set_shader_trace(self._program.shader_trace)
 
 
-# def _export(self):
-#     # TODO: Pop a text input dialog and capture a filename.
-#     filename = ""
-#     for index in range(1000):
-#         filename = f"export{index:04}.vsh"
-#         if not os.path.exists(filename):
-#             break
-#     if os.path.exists(filename):
-#         raise Exception("Failed to find an unused export filename.")
-#
-#     def resolve(input):
-#         return self._program.shader.initial_state.get(input)
-#
-#     self._editor.export(filename, resolve)
-
-
 def _emit_input_template():
     ctx = simulator.Context()
     values = ctx.to_dict(True)
@@ -198,10 +182,34 @@ def _main(args):
         json.dump(program.shader_trace.to_dict(), sys.stdout, indent=2, sort_keys=True)
         return 0
 
+    if args.simulate:
+        _dump_all_results(program)
+        return 0
+
     app = _App(program)
     app.run()
 
     return 0
+
+
+def _dump_all_results(program: _ShaderProgram) -> None:
+    all_results = []
+    ordered_vertices = program.get_deduped_ordered_vertices()
+    print(
+        f"Simulating {len(ordered_vertices)} runs, this may take some time...",
+        file=sys.stderr,
+    )
+
+    for vertex in ordered_vertices:
+        program.set_active_vertex(vertex)
+        result = {
+            "vertex": vertex,
+            "input": program.shader_trace.inputs,
+            "output": program.shader_trace.output,
+        }
+        all_results.append(result)
+
+    json.dump(all_results, sys.stdout, indent=2, sort_keys=True)
 
 
 def entrypoint():
@@ -246,7 +254,7 @@ def entrypoint():
             "-j",
             "--json",
             action="store_true",
-            help="Emit a JSON document capturing the context at each instruction in the source.",
+            help="Emit a JSON document capturing the context at each instruction in the source. Requires <source>.",
         )
 
         parser.add_argument(
@@ -254,6 +262,13 @@ def entrypoint():
             "--verbose",
             help="Enables verbose logging information",
             action="store_true",
+        )
+
+        parser.add_argument(
+            "-s",
+            "--simulate",
+            action="store_true",
+            help="Emit a JSON document capturing the end results for each vertex in the mesh. Requires <source>.",
         )
 
         return parser.parse_args()

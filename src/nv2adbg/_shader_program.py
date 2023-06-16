@@ -107,6 +107,13 @@ class _ShaderProgram:
     def vertex_inputs(self):
         return self._vertex_inputs
 
+    def get_deduped_ordered_vertices(self) -> List[Dict]:
+        deduped_vertices = {}
+        for vertex in self._vertex_inputs:
+            deduped_vertices[int(vertex["IDX"])] = vertex
+
+        return [deduped_vertices[idx] for idx in sorted(deduped_vertices.keys())]
+
     @property
     def constants_file(self) -> str:
         return self._renderdoc_constants_csv
@@ -122,11 +129,14 @@ class _ShaderProgram:
 
     def set_active_vertex_index(self, index: int) -> bool:
         """Selects a new vertex to use as inputs. Returns True if the shader was rebuilt as a result."""
-        active_vertex = self._vertex_inputs[index]
-        if active_vertex == self._active_vertex:
+        return self.set_active_vertex(self._vertex_inputs[index])
+
+    def set_active_vertex(self, vertex: Dict) -> bool:
+        """Selects a new vertex to use as inputs. Returns True if the shader was rebuilt as a result."""
+        if vertex == self._active_vertex:
             return False
 
-        self._active_vertex = active_vertex
+        self._active_vertex = vertex
         self.build_shader()
         return True
 
