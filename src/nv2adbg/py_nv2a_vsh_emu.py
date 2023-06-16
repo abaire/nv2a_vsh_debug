@@ -229,8 +229,7 @@ class Nv2aVshEmuState:
             for i in range(count):
                 register = [f"{prefix}{i}"]
                 offset = i * 4
-                for component in range(4):
-                    register.append(source[offset + component])
+                register.extend(source[offset : offset + 4])
                 regs.append(register)
             return regs
 
