@@ -1,17 +1,20 @@
 """Provides functions to lay out information about a single register."""
 
-from typing import Callable
-from typing import List
-from typing import Optional
-from typing import Tuple
+# ruff: noqa: RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
 
-from rich.console import RenderableType
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable
+
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from textual.widgets import Static
 
-from nv2adbg.simulator import Register
+if TYPE_CHECKING:
+    from rich.console import RenderableType
+
+    from nv2a_debug.simulator import Register
 
 
 class _RegisterSetPanel(Static):
@@ -36,19 +39,21 @@ class _RegisterSetPanel(Static):
 
     def __init__(self, title: str, **kwargs):
         super().__init__(**kwargs)
-        self._title = title
-        self._registers = None
-        self._name_modifier = None
+        self._title: str = title
+        self._registers: list[Register] | None = None
+        self._name_modifier: Callable[[str], str] | None = None
 
     def set_registers(
         self,
-        registers: List[Register],
-        name_modifier: Optional[Callable[[str], str]] = None,
+        registers: list[Register],
+        name_modifier: Callable[[str], str] | None = None,
     ):
         self._registers = registers
         self._name_modifier = name_modifier
 
     def render(self) -> RenderableType:
+        if not self._registers:
+            return ""
         register_lines = [self._build_renderables(r) for r in self._registers]
         if not register_lines:
             return ""
@@ -59,13 +64,11 @@ class _RegisterSetPanel(Static):
             border_style=self.get_component_rich_style("registersetpanel--border"),
         )
 
-    def _build_renderables(self, register: Register) -> List[Text]:
+    def _build_renderables(self, register: Register) -> list[Text]:
         ret = [
             Text.assemble(
                 (
-                    self._name_modifier(register.name)
-                    if self._name_modifier
-                    else register.name,
+                    self._name_modifier(register.name) if self._name_modifier else register.name,
                     self.get_component_rich_style("registersetpanel--register"),
                 )
             )
@@ -80,11 +83,11 @@ class _RegisterSetPanel(Static):
         return ret
 
 
-def layout_register_lines(register_lines: List[List[Text]], max_width: int) -> Table:
+def layout_register_lines(register_lines: list[list[Text]], max_width: int) -> Table:
     """Lays out a list of register text blocks in a grid, attempting to fit within the given number of columns.
 
     Arguments:
-        register_lines - List of Lists of Text instances following the form [register_name, x, y, z, w].
+        register_lines - list of Lists of Text instances following the form [register_name, x, y, z, w].
         max_width - The maximum number of text cells available per line.
     """
     label_cell_len, value_cell_len = _measure_register_lines(register_lines)
@@ -111,7 +114,7 @@ def layout_register_lines(register_lines: List[List[Text]], max_width: int) -> T
     return grid
 
 
-def _measure_register_lines(register_lines: List[List[Text]]) -> Tuple[int, int]:
+def _measure_register_lines(register_lines: list[list[Text]]) -> tuple[int, int]:
     """Returns a tuple of (max register name len, max value len) across all the given lines."""
     if not register_lines:
         return 0, 0
@@ -125,7 +128,7 @@ def _measure_register_lines(register_lines: List[List[Text]]) -> Tuple[int, int]
     return max_cell_lens[0], max(*max_cell_lens[1:])
 
 
-def _layout_xyzw(line: List[Text], label_cell_len: int, value_cell_len: int) -> Table:
+def _layout_xyzw(line: list[Text], label_cell_len: int, value_cell_len: int) -> Table:
     grid = Table.grid()
     grid.add_column(width=label_cell_len, justify="right")
     grid.add_column(width=value_cell_len)
@@ -138,7 +141,7 @@ def _layout_xyzw(line: List[Text], label_cell_len: int, value_cell_len: int) -> 
     return grid
 
 
-def _layout_xy_zw(line: List[Text], label_cell_len: int, value_cell_len: int) -> Table:
+def _layout_xy_zw(line: list[Text], label_cell_len: int, value_cell_len: int) -> Table:
     grid = Table.grid()
     grid.add_column(width=label_cell_len, justify="right")
     grid.add_column(width=value_cell_len)
@@ -151,9 +154,7 @@ def _layout_xy_zw(line: List[Text], label_cell_len: int, value_cell_len: int) ->
     return grid
 
 
-def _layout_x_y_z_w(
-    line: List[Text], label_cell_len: int, value_cell_len: int
-) -> Table:
+def _layout_x_y_z_w(line: list[Text], label_cell_len: int, value_cell_len: int) -> Table:
     grid = Table.grid()
     grid.add_column(width=label_cell_len, justify="right")
     grid.add_column(width=value_cell_len)

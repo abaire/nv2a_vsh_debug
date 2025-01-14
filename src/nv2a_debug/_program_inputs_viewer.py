@@ -1,18 +1,21 @@
 """Provides functionality to browse the input state."""
 
-from typing import Optional
+from __future__ import annotations
 
-from textual.app import ComposeResult
-from textual.containers import Horizontal
-from textual.containers import VerticalScroll
+from typing import TYPE_CHECKING
+
+from textual.containers import Horizontal, VerticalScroll
 from textual.css import query
 from textual.reactive import reactive
-from textual.widgets import ContentSwitcher
-from textual.widgets import Static
+from textual.widgets import ContentSwitcher, Static
 
-from nv2adbg._error_message import _CenteredErrorMessage
-from nv2adbg._register_view import _RegisterSetPanel
-from nv2adbg.simulator import Context
+from nv2a_debug._error_message import _CenteredErrorMessage
+from nv2a_debug._register_view import _RegisterSetPanel
+
+if TYPE_CHECKING:
+    from textual.app import ComposeResult
+
+    from nv2a_debug.simulator import Context
 
 
 class _ProgramInputsViewer(Static):
@@ -45,15 +48,15 @@ class _ProgramInputsViewer(Static):
 
     _active_content = reactive("no-content", init=False)
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self._context: Optional[Context] = None
+        self._register_context: Context | None = None
 
         self._inputs_table = _RegisterSetPanel("Inputs", id="inputs-table")
         self._constants_table = _RegisterSetPanel("Constants", id="constants-table")
 
     def set_context(self, context: Context):
-        self._context = context
+        self._register_context = context
         self._populate()
         self.update()
 
@@ -75,15 +78,13 @@ class _ProgramInputsViewer(Static):
 
     def _populate(self):
         try:
-            if self._context:
-                self._inputs_table.set_registers(self._context.inputs)
+            if self._register_context:
+                self._inputs_table.set_registers(self._register_context.inputs)
 
                 def rename_constant_register(name: str) -> str:
                     return f"c[{name[1:]}]"
 
-                self._constants_table.set_registers(
-                    self._context.constants, rename_constant_register
-                )
+                self._constants_table.set_registers(self._register_context.constants, rename_constant_register)
                 self._active_content = "content"
             else:
                 self._active_content = "no-content"

@@ -1,18 +1,23 @@
 """Provides a widget to render inputs to a simulator.Step."""
 
-from typing import List
-from typing import Optional
+# ruff: noqa: RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
 
-from rich.console import RenderableType
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from rich.layout import Layout
 from rich.panel import Panel
-from rich.style import Style
 from rich.text import Text
 from textual.widgets import Static
 
-from nv2adbg._register_view import layout_register_lines
-from nv2adbg.simulator import RegisterReference
-from nv2adbg.simulator import Step
+from nv2a_debug._register_view import layout_register_lines
+
+if TYPE_CHECKING:
+    from rich.console import RenderableType
+    from rich.style import Style
+
+    from nv2a_debug.simulator import RegisterReference, Step
 
 
 class _InputPanel(Static):
@@ -42,26 +47,23 @@ class _InputPanel(Static):
     }
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
-        self._step: Optional[Step] = None
+        self._step: Step | None = None
 
     def on_mount(self) -> None:
         self._register_style = self.get_component_rich_style("inputpanel--register")
-        self._muted_register_style = self.get_component_rich_style(
-            "inputpanel--register-unused"
-        )
+        self._muted_register_style = self.get_component_rich_style("inputpanel--register-unused")
         self._value_style = self.get_component_rich_style("inputpanel--value")
-        self._muted_value_style = self.get_component_rich_style(
-            "inputpanel--value-unused"
-        )
+        self._muted_value_style = self.get_component_rich_style("inputpanel--value-unused")
 
     def set_step(self, step: Step):
         self._step = step
         self.update()
 
     def render(self) -> RenderableType:
+        renderable: RenderableType
         if not self._step:
             renderable = ""
         else:
@@ -88,10 +90,7 @@ class _InputPanel(Static):
 
         return Panel(renderable, title="Inputs")
 
-    def _render_input(
-        self, stage_name: str, registers: List[RegisterReference], width: int
-    ) -> RenderableType:
-
+    def _render_input(self, stage_name: str, registers: list[RegisterReference], width: int) -> RenderableType:
         registers = _dedup_registers(registers)
 
         register_lines = [self._build_renderables(r) for r in registers]
@@ -104,7 +103,7 @@ class _InputPanel(Static):
         )
         return ret
 
-    def _build_renderables(self, register: RegisterReference) -> List[Text]:
+    def _build_renderables(self, register: RegisterReference) -> list[Text]:
         ret = []
 
         elements = []
@@ -115,11 +114,11 @@ class _InputPanel(Static):
         ret.append(Text.assemble(*elements))
 
         def get_value_style(component: str) -> Style:
-            return (
-                self._value_style
-                if component in register.sorted_mask
-                else self._muted_value_style
-            )
+            return self._value_style if component in register.sorted_mask else self._muted_value_style
+
+        if not self._step:
+            msg = "_build_renderables called without self._step"
+            raise ValueError(msg)
 
         state = self._step.state
         x, y, z, w = state.get(f"{register.canonical_name}")
@@ -131,7 +130,7 @@ class _InputPanel(Static):
         return ret
 
 
-def _dedup_registers(registers: List[RegisterReference]) -> List[RegisterReference]:
+def _dedup_registers(registers: list[RegisterReference]) -> list[RegisterReference]:
     """Merges any duplicate references in the given register list."""
     ret = {registers[0].canonical_name: registers[0]}
 

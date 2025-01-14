@@ -1,42 +1,42 @@
 """Provides a widget to render and navigate nv2a vsh assembly code."""
-from dataclasses import dataclass
-from typing import FrozenSet
-from typing import List
-from typing import Optional
-from typing import Set
-from typing import Tuple
+
+# ruff: noqa: RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+
+# Textual event method handlers must take positional arguments.
+# ruff: noqa: FBT001 Boolean-typed positional argument in function definition
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from rich.segment import Segment
-from rich.style import Style
 from textual.app import Binding
-from textual.geometry import Region
-from textual.geometry import Size
+from textual.geometry import Region, Size
 from textual.messages import Message
 from textual.reactive import reactive
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
-from textual.widgets import Label
 
-from nv2adbg.simulator import canonicalize_register_name
-from nv2adbg.simulator import Ancestor
-from nv2adbg.simulator import RegisterReference
-from nv2adbg.simulator import Step
-from nv2adbg.simulator import Trace
+if TYPE_CHECKING:
+    from rich.style import Style
+    from textual.widgets import Label
+
+from nv2a_debug.simulator import Ancestor, RegisterReference, Step, Trace, canonicalize_register_name
 
 
 class TraceView:
     """Provides a filtered view of a Trace by following the ancestry of a Step."""
 
-    def __init__(self, trace: Trace, root_step: Optional[Step] = None):
+    def __init__(self, trace: Trace, root_step: Step | None = None):
         self._trace: Trace = trace
-        self._ancestors: Optional[Set[Ancestor]] = None
-        self._inputs: Optional[Set[RegisterReference]] = None
-        self.filtered_steps: List[Step] = self._trace.steps
-        self._root_step: Optional[Step] = root_step
+        self._ancestors: set[Ancestor] | None = None
+        self._inputs: set[RegisterReference] | None = None
+        self.filtered_steps: list[Step] = self._trace.steps
+        self._root_step: Step | None = root_step
 
         self.set_ancestor_root(root_step)
 
-    def set_ancestor_root(self, root_step: Optional[Step]):
+    def set_ancestor_root(self, root_step: Step | None):
         """Sets the root of the filtered view."""
         self._root_step = root_step
         if not root_step:
@@ -49,15 +49,17 @@ class TraceView:
         self._ancestors = ancestors
         self._inputs = inputs
 
-        included_steps = set([a.step for a in ancestors])
+        included_steps = {a.step for a in ancestors}
         self.filtered_steps = [s for s in self._trace.steps if s in included_steps]
 
-    def get_step(self, step_index: int) -> Tuple[int, Step]:
+    def get_step(self, step_index: int) -> tuple[int, Step]:
         """Returns the filtered index and step with the given program index."""
         for idx, s in enumerate(self.filtered_steps):
             if s.index == step_index:
                 return idx, s
-        raise IndexError(f"Step index '{step_index}' not present in filtered view")
+
+        msg = f"Step index '{step_index}' not present in filtered view"
+        raise IndexError(msg)
 
     def get_step_at_display_index(self, index: int) -> Step:
         """Returns the Step at the given offset within the filtered view."""
@@ -159,29 +161,29 @@ class _CodePanel(ScrollView, can_focus=True):
 
         Properties:
             linenum: int - The new line number.
-            step: Optional[Step] - The Step at the new line.
+            step: Step | None - The Step at the new line.
         """
 
-        def __init__(self, linenum: int, step: Optional[Step]) -> None:
+        def __init__(self, linenum: int, step: Step | None) -> None:
             """linenum - The new line number."""
             super().__init__()
             self.linenum = linenum
             self.step = step
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self._trace: Optional[Trace] = None
-        self._trace_view: Optional[TraceView] = None
-        self._lines: List[Tuple[str, Step]] = []
+        self._trace: Trace | None = None
+        self._trace_view: TraceView | None = None
+        self._lines: list[tuple[str, Step]] = []
         self._start_line: int = 0
 
         # The root of the ancestor chain (the current cursor position in normal
         # mode, but may be locked to an arbitrary instruction). This is the
         # Step::index rather than a row index.
-        self._ancestor_chain_root_step_index: Optional[int] = None
+        self._ancestor_chain_root_step_index: int | None = None
         self._ancestor_locked: bool = False
-        self._highlighted_ancestors: Set[Ancestor] = set()
-        self._highlighted_inputs: Set[RegisterReference] = set()
+        self._highlighted_ancestors: set[Ancestor] = set()
+        self._highlighted_inputs: set[RegisterReference] = set()
 
     def set_shader_trace(self, trace: Trace):
         self._trace = trace
@@ -212,84 +214,65 @@ class _CodePanel(ScrollView, can_focus=True):
         # Maximum visible length is the widget boundaries - 2 to account for the scroll bar.
         max_line_length = self.size.width - 2
         self.virtual_size = Size(max_line_length, len(self._trace_view.filtered_steps))
-        self.post_message(
-            self.ActiveLineChanged(self.cursor_pos, self._trace_view.filtered_steps[0])
-        )
+        self.post_message(self.ActiveLineChanged(self.cursor_pos, self._trace_view.filtered_steps[0]))
 
     def render_line(self, y: int) -> Strip:
         _scroll_x, scroll_y = self.scroll_offset
-        line = self._render_line(scroll_y + y, self.size.width)
-        return line
+        return self._render_line(scroll_y + y, self.size.width)
 
     def _render_line(self, y: int, width: int) -> Strip:
         if y >= len(self._lines):
             return Strip.blank(width, self.rich_style)
 
         is_selected = y == self.cursor_pos
-        modifier = self._get_modifier(y)
+        modifier_character = self._get_modifier(y)
 
         style_prefix = "codepanel-"
         if is_selected:
             style_prefix += "-selected"
 
         modifier_style = self.get_component_styles(f"{style_prefix}-modifier")
-        modifier = Segment(
-            f"{modifier:{modifier_style.width}}", modifier_style.rich_style
-        )
+        modifier = Segment(f"{modifier_character:{modifier_style.width}}", modifier_style.rich_style)
 
-        linenum, step = self._lines[y]
-        linenum = Segment(
-            linenum, self.get_component_rich_style(f"{style_prefix}-linenum")
-        )
+        linenum_str, step = self._lines[y]
+        linenum = Segment(linenum_str, self.get_component_rich_style(f"{style_prefix}-linenum"))
         source_style_name = f"{style_prefix}-code"
         source = self._build_source_segments(step, source_style_name)
 
-        strip = (
+        return (
             Strip([modifier, linenum, *source])
             .adjust_cell_length(width, self.get_component_rich_style(source_style_name))
             .crop(0, width)
         )
 
-        return strip
-
-    def _build_source_segments(
-        self, step: Step, source_style_name: str
-    ) -> List[Segment]:
+    def _build_source_segments(self, step: Step, source_style_name: str) -> list[Segment]:
         source_style = self.get_component_rich_style(source_style_name)
 
         if self.show_ancestors:
             if step.index == self._ancestor_chain_root_step_index:
-                contributed_style = self.get_component_rich_style(
-                    source_style_name + "-contributing-component"
-                )
-                input_style = self.get_component_rich_style(
-                    source_style_name + "-input-component"
-                )
-                return self._build_highlighted_input_source_segments(
-                    step, source_style, contributed_style, input_style
-                )
-            else:
-                ancestors = self._get_ancestor_relationships(step)
-                if ancestors:
-                    stage_ancestors = {"mac": [], "ilu": []}
-                    for ancestor in ancestors:
-                        stage_ancestors[ancestor.mac_or_ilu].append(ancestor)
+                contributed_style = self.get_component_rich_style(source_style_name + "-contributing-component")
+                input_style = self.get_component_rich_style(source_style_name + "-input-component")
+                return self._build_highlighted_input_source_segments(step, source_style, contributed_style, input_style)
 
-                    contributing_style = self.get_component_rich_style(
-                        source_style_name + "-contributing-component"
+            ancestors = self._get_ancestor_relationships(step)
+            if ancestors:
+                stage_ancestors: dict[str, list[Ancestor]] = {"mac": [], "ilu": []}
+                for ancestor in ancestors:
+                    stage_ancestors[ancestor.mac_or_ilu].append(ancestor)
+
+                contributing_style = self.get_component_rich_style(source_style_name + "-contributing-component")
+                step_dict = step.to_dict()
+                segments = [
+                    _build_contributing_source_segments(
+                        step_dict["instruction"][stage],
+                        stage_ancestors[stage],
+                        source_style,
+                        contributing_style,
                     )
-                    step_dict = step.to_dict()
-                    segments = [
-                        _build_contributing_source_segments(
-                            step_dict["instruction"][stage],
-                            stage_ancestors[stage],
-                            source_style,
-                            contributing_style,
-                        )
-                        for stage in ["mac", "ilu"]
-                        if step_dict["instruction"][stage]
-                    ]
-                    return _flatten_composite_step_segments(segments, source_style)
+                    for stage in ["mac", "ilu"]
+                    if step_dict["instruction"][stage]
+                ]
+                return _flatten_composite_step_segments(segments, source_style)
 
         return [Segment(step.source, source_style)]
 
@@ -299,7 +282,7 @@ class _CodePanel(ScrollView, can_focus=True):
         source_style: Style,
         contributed_style: Style,
         input_style: Style,
-    ) -> List[Segment]:
+    ) -> list[Segment]:
         info = step.to_dict()
         return _build_ancestor_root_segments(
             info["instruction"],
@@ -320,10 +303,12 @@ class _CodePanel(ScrollView, can_focus=True):
 
         self.scroll_to_show_row(new_pos)
 
-        if new_pos < len(self._trace_view.filtered_steps):
-            step = self._trace_view.filtered_steps[new_pos]
-        else:
-            step = None
+        step = (
+            self._trace_view.filtered_steps[new_pos]
+            if self._trace_view and new_pos < len(self._trace_view.filtered_steps)
+            else None
+        )
+
         self.post_message(self.ActiveLineChanged(new_pos, step))
 
     def _get_region_for_row(self, row: int) -> Region:
@@ -346,12 +331,15 @@ class _CodePanel(ScrollView, can_focus=True):
             self._highlighted_inputs.clear()
 
     def _refresh_ancestors(self, row: int):
+        if not self._trace_view:
+            msg = "_refresh_ancestors called without self._trace_view"
+            raise ValueError(msg)
+
         step = self._trace_view.filtered_steps[row]
         self._ancestor_chain_root_step_index = step.index
         ancestors, inputs = _collect_contributors(step)
 
         stale_ancestors = self._highlighted_ancestors - ancestors
-        stale_inputs = self._highlighted_inputs - inputs
 
         self._highlighted_ancestors = ancestors
         self._highlighted_inputs = inputs
@@ -359,13 +347,17 @@ class _CodePanel(ScrollView, can_focus=True):
         for ancestor in stale_ancestors | self._highlighted_ancestors:
             self._refresh_step(ancestor.step)
 
-    def _get_ancestor_relationships(self, step: Step) -> List[Ancestor]:
+    def _get_ancestor_relationships(self, step: Step) -> list[Ancestor]:
         """Returns all Ancestor relationships associated with the given Step."""
         return [a for a in self._highlighted_ancestors if a.step == step]
 
     def _get_modifier(self, row: int) -> str:
         if not self.show_ancestors:
             return ""
+
+        if not self._trace_view:
+            msg = "_get_modifier called without self._trace_view"
+            raise ValueError(msg)
 
         step = self._trace_view.get_step_at_display_index(row)
         if self._get_ancestor_relationships(step):
@@ -380,9 +372,14 @@ class _CodePanel(ScrollView, can_focus=True):
         return self.size.height - (1 + obscured_rows)
 
     @property
-    def selected_step(self) -> Optional[Step]:
+    def selected_step(self) -> Step | None:
         if not self._trace:
             return None
+
+        if not self._trace_view:
+            msg = "selected_step called without self._trace_view"
+            raise ValueError(msg)
+
         return self._trace_view.filtered_steps[self.cursor_pos]
 
     @property
@@ -423,11 +420,11 @@ class _CodePanel(ScrollView, can_focus=True):
     def _action_cursor_end(self):
         self.cursor_pos = len(self._lines) - 1
 
-    def _remove_highlight(self, row: Tuple[Label, Label, Label]) -> None:
+    def _remove_highlight(self, row: tuple[Label, Label, Label]) -> None:
         for widget in row:
             widget.remove_class("selected")
 
-    def _add_highlight(self, row: Tuple[Label, Label, Label]) -> None:
+    def _add_highlight(self, row: tuple[Label, Label, Label]) -> None:
         for widget in row:
             widget.add_class("selected")
 
@@ -478,37 +475,30 @@ class _CodePanel(ScrollView, can_focus=True):
 
 
 def _collect_contributors(
-    current: Step, mac_ilu_filer: Optional[str] = None
-) -> Tuple[Set[Ancestor], Set[RegisterReference]]:
+    current: Step, mac_ilu_filer: str | None = None
+) -> tuple[set[Ancestor], set[RegisterReference]]:
     """Returns a tuple of flattened Ancestor and RegisterReferences contributing to the inputs of the given Step."""
     flat_ancestors = set()
     flat_inputs = set()
 
-    def add_recursive_ancestors(ancestors: List[Ancestor]) -> None:
+    def add_recursive_ancestors(ancestors: list[Ancestor]) -> None:
         for link in ancestors:
             if link in flat_ancestors:
                 continue
 
             flat_ancestors.add(link)
 
-            new_ancestors, new_inputs = link.step.get_ancestors_for_stage(
-                link.mac_or_ilu
-            )
+            new_ancestors, new_inputs = link.step.get_ancestors_for_stage(link.mac_or_ilu)
             add_recursive_ancestors(new_ancestors)
             flat_inputs.update(new_inputs)
 
-    if mac_ilu_filer:
-        keys = set(mac_ilu_filer)
-    else:
-        keys = {"mac", "ilu"}
+    keys = set(mac_ilu_filer) if mac_ilu_filer else {"mac", "ilu"}
 
-    def extract_refs(refs: List[RegisterReference]) -> FrozenSet[Tuple[str, str]]:
-        return frozenset(set([(r.raw_name, r.mask) for r in refs]))
+    def extract_refs(refs: list[RegisterReference]) -> frozenset[tuple[str, str]]:
+        return frozenset({(r.raw_name, r.mask) for r in refs})
 
     starting_list = [
-        Ancestor(current, key, extract_refs(current.outputs[key]))
-        for key in keys
-        if current.has_stage(key)
+        Ancestor(current, key, extract_refs(current.outputs[key])) for key in keys if current.has_stage(key)
     ]
     add_recursive_ancestors(starting_list)
 
@@ -517,10 +507,10 @@ def _collect_contributors(
 
 def _build_contributing_source_segments(
     info: dict,
-    ancestors: List[Ancestor],
+    ancestors: list[Ancestor],
     source_style: Style,
     contributing_style: Style,
-) -> List[Segment]:
+) -> list[Segment]:
     def source(text: str) -> Segment:
         return Segment(text, source_style)
 
@@ -543,15 +533,12 @@ def _build_contributing_source_segments(
                     return contrib(component)
         return source(component)
 
-    def stylize_output(output: str) -> List[Segment]:
+    def stylize_output(output: str) -> list[Segment]:
         components = output.split(".")
         register = components[0]
         ret = [contrib(register)]
 
-        if len(components) < 2 and has_applicable_ancestor(register):
-            mask = "xyzw"
-        else:
-            mask = components[1]
+        mask = "xyzw" if len(components) < 2 and has_applicable_ancestor(register) else components[1]  # noqa: PLR2004 Magic value used in comparison
 
         if mask:
             ret.append(source("."))
@@ -581,11 +568,11 @@ def _build_contributing_source_segments(
 
 def _build_ancestor_root_segments(
     instruction: dict,
-    ancestors: Set[Ancestor],
+    ancestors: set[Ancestor],
     source_style: Style,
     contributed_style: Style,
     input_style: Style,
-) -> List[Segment]:
+) -> list[Segment]:
     def source(text: str) -> Segment:
         return Segment(text, source_style)
 
@@ -595,7 +582,7 @@ def _build_ancestor_root_segments(
     def unsatisfied_input(text: str) -> Segment:
         return Segment(text, input_style)
 
-    def contributed_components(register_name: str) -> Set[str]:
+    def contributed_components(register_name: str) -> set[str]:
         """Returns a set of mask elements contributed by ancestors."""
         ret = set()
         for ancestor in ancestors:
@@ -604,31 +591,28 @@ def _build_ancestor_root_segments(
                     ret |= set(mask)
         return ret
 
-    def build_inputs(inputs: List[str]) -> List[Segment]:
+    def build_inputs(inputs: list[str]) -> list[Segment]:
         ret = []
-        for idx, input in enumerate(inputs):
+        for idx, input_register in enumerate(inputs):
             if idx:
                 ret.append(source(", "))
 
-            if input[0] == "-":
+            if input_register[0] == "-":
                 ret.append(source("-"))
-                input = input[1:]
-            reg_and_mask = input.split(".")
+                input_register = input_register[1:]  # noqa:  PLW2901 `for` loop variable overwritten
+            reg_and_mask = input_register.split(".")
             raw_register_name = reg_and_mask[0]
             register_name = canonicalize_register_name(raw_register_name)
             contributed_mask = contributed_components(register_name)
 
-            if len(contributed_mask) == 4:
+            if len(contributed_mask) == 4:  # noqa: PLR2004 Magic value used in comparison
                 # All components were contributed, so the entire reg is contributed.
-                ret.append(contrib(input))
+                ret.append(contrib(input_register))
             elif not contributed_mask:
                 # No components were contributed, so the entire reg is an input.
-                ret.append(unsatisfied_input(input))
+                ret.append(unsatisfied_input(input_register))
             else:
-                if len(reg_and_mask) == 1:
-                    mask = "xyzw"
-                else:
-                    mask = reg_and_mask[1]
+                mask = "xyzw" if len(reg_and_mask) == 1 else reg_and_mask[1]
 
                 has_unsatisfied = False
                 component_segments = []
@@ -648,7 +632,7 @@ def _build_ancestor_root_segments(
 
         return ret
 
-    def _build_ancestor_root_stage(mac_or_ilu: str) -> List[List[Segment]]:
+    def _build_ancestor_root_stage(mac_or_ilu: str) -> list[list[Segment]]:
         info = instruction.get(mac_or_ilu)
         if not info:
             return []
@@ -670,9 +654,7 @@ def _build_ancestor_root_segments(
     return _flatten_composite_step_segments(segments, source_style)
 
 
-def _flatten_composite_step_segments(
-    segments: List[List[Segment]], join_style: Style
-) -> List[Segment]:
+def _flatten_composite_step_segments(segments: list[list[Segment]], join_style: Style) -> list[Segment]:
     flattened = segments[0]
     for additional in segments[1:]:
         flattened.append(Segment(" + ", join_style))

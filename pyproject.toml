@@ -1,0 +1,115 @@
+[build-system]
+requires = ["hatchling>=1.11.1"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nv2a-debug"
+dynamic = ["version"]
+description = 'Simulator/debugger for the Xbox nv2a vertex shader'
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+keywords = ["nv2a", "vertex shader", "assembler", "xbox", "nvidia"]
+authors = [
+    { name = "Erik Abair", email = "erik.abair@bearbrains.work" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Debuggers",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "nv2a-vsh~=0.1.2",
+    "textual~=1.0.0",
+    "cffi~=1.17.1",
+]
+
+[project.urls]
+Documentation = "https://github.com/abaire/nv2a_vsh_debug#readme"
+Issues = "https://github.com/abaire/nv2a_vsh_debug/issues"
+Source = "https://github.com/abaire/nv2a_vsh_debug"
+
+[project.scripts]
+nv2adbg = "nv2a_debug:run"
+
+[tool.hatch.version]
+path = "src/nv2a_debug/__about__.py"
+
+[tool.hatch.envs.types]
+type = "virtual"
+path = ".venv-mypy"
+extra-dependencies = [
+    "mypy>=1.14.1",
+]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/nv2a_debug tests}"
+
+[tool.mypy]
+disable_error_code = ["import-untyped", "import-not-found"]
+
+[tool.coverage.run]
+source_pkgs = ["nv2a_debug", "tests"]
+branch = true
+parallel = true
+omit = [
+    "src/nv2a_debug/__about__.py",
+]
+
+[tool.coverage.paths]
+nv2a_vsh_debug = ["src/nv2a_debug", "*/nv2a-vsh/src/nv2a_debug"]
+tests = ["tests", "*/nv2a-vsh/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "no cov",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+[tool.hatch.build]
+artifacts = [
+    "src/grammar/vsh/*",
+]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "README-maintainer.md"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nv2a_debug"]
+exclude = [
+    "README-maintainer.md"
+]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build_cffi.py"
+description = "Generate nv2a_vsh_cpu bindings"
+dependencies = [
+    "cffi~=1.17.1",
+    "setuptools",
+]
+
+[tool.hatch.envs.default]
+type = "virtual"
+path = "venv"
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src"
+]
+
+[tool.hatch.envs.hatch-test]
+type = "virtual"
+path = "venv"
+extra-dependencies = [
+    "pytest",
+]

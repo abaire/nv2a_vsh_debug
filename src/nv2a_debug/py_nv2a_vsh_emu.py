@@ -1,7 +1,12 @@
-from typing import List, Optional, Tuple
+from __future__ import annotations
 
-from _nv2a_vsh_cpu import ffi
-from _nv2a_vsh_cpu import lib
+from typing import TYPE_CHECKING
+
+from nv2a_debug._types import Register
+from nv2a_debug.lib._nv2a_vsh_cpu import ffi, lib
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 _OPCODES = [
     "NOP",
@@ -72,19 +77,19 @@ OUTPUT_NAMES = {
 _SWIZZLES = "xyzw"
 
 
-def _stringify_output(type, index, writemask) -> str:
+def _stringify_output(register_type, index, writemask) -> str:
     mask = _WRITEMASKS[writemask]
 
-    if type == lib.NV2ART_CONTEXT:
+    if register_type == lib.NV2ART_CONTEXT:
         return f"c[{index}]{mask}"
 
-    if type == lib.NV2ART_OUTPUT:
+    if register_type == lib.NV2ART_OUTPUT:
         return f"{OUTPUT_NAMES[index]}{mask}"
 
-    return f"{_REGISTERS[type]}{index}{mask}"
+    return f"{_REGISTERS[register_type]}{index}{mask}"
 
 
-def _make_swizzle(components: List[int]) -> str:
+def _make_swizzle(components: list[int]) -> str:
     if components == [0, 1, 2, 3]:
         return ""
 
@@ -93,20 +98,20 @@ def _make_swizzle(components: List[int]) -> str:
         components = components[1:]
     components.reverse()
 
-    components = [_SWIZZLES[val] for val in components]
-    swizzle_str = "".join(components)
+    component_names = [_SWIZZLES[val] for val in components]
+    swizzle_str = "".join(component_names)
     return f".{swizzle_str}"
 
 
-def _stringify_input(type, index, swizzle, negate: bool, relative: bool) -> str:
-    if type == lib.NV2ART_CONTEXT:
+def _stringify_input(register_type, index, swizzle, *, negate: bool, relative: bool) -> str:
+    if register_type == lib.NV2ART_CONTEXT:
         rel = "A0+" if relative else ""
         reg = f"c[{rel}{index}]"
     else:
-        reg = _REGISTERS[type] + str(index)
+        reg = _REGISTERS[register_type] + str(index)
 
     # Expand the FFI array into a list for easier manipulation.
-    swizzle_str = _make_swizzle([val for val in swizzle])
+    swizzle_str = _make_swizzle(list(swizzle))
 
     neg = "-" if negate else ""
     return f"{neg}{reg}{swizzle_str}"
@@ -135,31 +140,31 @@ def _operation_to_dict(operation) -> dict:
 
     inputs = []
     for i in range(3):
-        input = operation.inputs[i]
-        if input.type == lib.NV2ART_NONE:
+        input_value = operation.inputs[i]
+        if input_value.type == lib.NV2ART_NONE:
             break
 
-        type = input.type
-        index = input.index
-        swizzle = input.swizzle
-        negate = input.is_negated != 0
-        relative = input.is_relative != 0
-        inputs.append(_stringify_input(type, index, swizzle, negate, relative))
+        register_type = input_value.type
+        index = input_value.index
+        swizzle = input_value.swizzle
+        negate = input_value.is_negated != 0
+        relative = input_value.is_relative != 0
+        inputs.append(_stringify_input(register_type, index, swizzle, negate=negate, relative=relative))
 
-    ret = {
+    return {
         "mnemonic": _OPCODES[operation.opcode],
         "inputs": inputs,
         "outputs": outputs,
     }
-    return ret
 
 
 class Nv2aVshStep:
-    def __init__(self, token: List[int]):
+    def __init__(self, token: list[int]):
         self._step = ffi.new("Nv2aVshStep *")
         result = lib.nv2a_vsh_parse_step(self._step, token)
         if result != lib.NV2AVPR_SUCCESS:
-            raise Exception(f"Failed to parse nv2a token {token}")
+            msg = f"Failed to parse nv2a token {token}"
+            raise RuntimeError(msg)
 
     def source(self) -> str:
         ret = []
@@ -170,21 +175,22 @@ class Nv2aVshStep:
 
         return " + ".join(ret)
 
-    def get(self, mac_or_ilu) -> Optional[dict]:
+    def get(self, mac_or_ilu) -> dict | None:
         """Returns a dictionary with the mnemonic, outputs, and inputs of the mac or ilu portion of this step."""
         if mac_or_ilu == "mac":
             return self._get_mac_dict()
         if mac_or_ilu == "ilu":
             return self._get_ilu_dict()
 
-        raise Exception(f"Unexpected get field {mac_or_ilu}")
+        msg = f"Unexpected get field {mac_or_ilu}"
+        raise ValueError(msg)
 
-    def _get_mac_dict(self) -> Optional[dict]:
+    def _get_mac_dict(self) -> dict | None:
         if not self._step.mac.opcode:
             return None
         return _operation_to_dict(self._step.mac)
 
-    def _get_ilu_dict(self) -> Optional[dict]:
+    def _get_ilu_dict(self) -> dict | None:
         if not self._step.ilu.opcode:
             return None
         return _operation_to_dict(self._step.ilu)
@@ -195,18 +201,23 @@ class Nv2aVshEmuState:
         self._state = ffi.new("Nv2aVshCPUFullExecutionState*")
         self._token = lib.nv2a_vsh_emu_initialize_full_execution_state(self._state)
 
-    def set_state(
-        self, input: List, context: List, temp: List, output: List, address: List
-    ):
-        def _set(destination, register):
-            name, x, y, z, w = register
+    def set_state(self, input_registers: list, context: list, temp: list, output: list, address: list):
+        def _set(destination, register: Collection | Register):
+            if isinstance(register, Register):
+                name = register.name
+                x = register.x
+                y = register.y
+                z = register.z
+                w = register.w
+            else:
+                name, x, y, z, w = register
             index = int(name[1:]) * 4
             destination[index] = x
             destination[index + 1] = y
             destination[index + 2] = z
             destination[index + 3] = w
 
-        for register in input:
+        for register in input_registers:
             _set(self._state.input_regs, register)
         for register in context:
             _set(self._state.context_regs, register)
@@ -221,10 +232,10 @@ class Nv2aVshEmuState:
             self._state.address_reg[2] = address[2]
             self._state.address_reg[3] = address[3]
 
-    def to_dict(self, inputs_only: bool):
+    def to_dict(self, *, inputs_only: bool):
         """Returns a dictionary representation of this state."""
 
-        def retrieve_regs(prefix: str, source, count: int) -> List:
+        def retrieve_regs(prefix: str, source, count: int) -> list:
             regs = []
             for i in range(count):
                 register = [f"{prefix}{i}"]
@@ -246,12 +257,12 @@ class Nv2aVshEmuState:
         return ret
 
     def apply(self, step: Nv2aVshStep):
-        lib.nv2a_vsh_emu_apply(ffi.addressof(self._token), step._step)
+        lib.nv2a_vsh_emu_apply(ffi.addressof(self._token), step._step)  # noqa: SLF001 Private member accessed
 
-    def get_register_value(self, name: str) -> Tuple[float, float, float, float]:
+    def get_register_value(self, name: str) -> tuple[float, float, float, float]:
         """Returns the current value of the given register."""
 
-        def _get(destination, reg_name):
+        def _get(destination, reg_name) -> tuple[float, float, float, float]:
             index = int(reg_name[1:]) * 4
             return tuple(destination[index : index + 4])
 
@@ -269,4 +280,5 @@ class Nv2aVshEmuState:
         if name == "A0":
             return tuple(self._state.address_reg)
 
-        raise Exception(f"Unknown register '{name}'")
+        msg = f"Unknown register '{name}'"
+        raise ValueError(msg)
