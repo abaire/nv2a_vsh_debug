@@ -1,15 +1,15 @@
 .DS_Store
 
 __pycache__/
-build/
 
 # Debug output
 out/
 
 .idea/
-.eggs/
-*.egg-info/
+build/
 dist/
+venv/
+.venv-mypy/
 
 *.pyc
 export*.vsh

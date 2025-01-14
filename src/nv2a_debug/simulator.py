@@ -1,20 +1,20 @@
 """Provides functions to simulate the behavior of an original xbox nv2a vertex shader."""
 
+from __future__ import annotations
+
 import collections
 from copy import deepcopy
-from dataclasses import dataclass
-from dataclasses import replace
-from typing import Dict
-from typing import FrozenSet
-from typing import List
-from typing import Optional
-from typing import Set
-from typing import Tuple
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
+
+import nv2a_vsh
 from typing_extensions import Self
 
-import nv2avsh
-from nv2adbg.py_nv2a_vsh_emu import Nv2aVshEmuState
-from nv2adbg.py_nv2a_vsh_emu import Nv2aVshStep
+from nv2a_debug._types import Register
+from nv2a_debug.py_nv2a_vsh_emu import Nv2aVshEmuState, Nv2aVshStep
+
+if TYPE_CHECKING:
+    from collections.abc import Reversible
 
 OUTPUT_TO_INDEX = {
     "oPos": 0,
@@ -29,51 +29,6 @@ OUTPUT_TO_INDEX = {
     "oT2": 11,
     "oT3": 12,
 }
-
-
-@dataclass(unsafe_hash=True)
-class Register:
-    """Holds the state of a single nv2a register."""
-
-    name: str
-    x: float = 0
-    y: float = 0
-    z: float = 0
-    w: float = 0
-
-    def to_json(self) -> List:
-        return [self.name, self.x, self.y, self.z, self.w]
-
-    def get(self, mask: str) -> List[float]:
-        ret = []
-        for field in mask:
-            if field == "x":
-                ret.append(self.x)
-            elif field == "y":
-                ret.append(self.y)
-            elif field == "z":
-                ret.append(self.z)
-            elif field == "w":
-                ret.append(self.w)
-            else:
-                raise Exception(f"Invalid mask component {field}")
-        return ret
-
-    def set(self, mask: str, value: Tuple[float, float, float, float]):
-        for field in mask:
-            if field == "x":
-                self.x = value[0]
-            elif field == "y":
-                self.y = value[1]
-            elif field == "z":
-                self.z = value[2]
-            elif field == "w":
-                self.w = value[3]
-            else:
-                raise Exception(f"Invalid mask component {field}")
-
-    def __str__(self):
-        return f"{self.name}[{self.x:f},{self.y:f},{self.z:f},{self.w:f}]"
 
 
 def canonicalize_register_name(name: str) -> str:
@@ -108,16 +63,15 @@ class RegisterReference:
             sorted_mask: str - The mask elements deduplicated and sorted to canonical order (x, y, z, w).
     """
 
-    negate: Optional[bool]
+    negate: bool | None
     raw_name: str
     canonical_name: str
     mask: str
     sorted_mask: str
-    extended_mask: Optional[str]
+    extended_mask: str | None
 
     @classmethod
     def from_source(cls, source: str) -> Self:
-
         if source[0] == "-":
             negate = True
             source = source[1:]
@@ -139,7 +93,7 @@ class RegisterReference:
                 sorted_mask = f"{sorted_mask[1:]}w"
 
         extended_mask = mask
-        while len(extended_mask) < 4:
+        while len(extended_mask) < 4:  # noqa: PLR2004 Magic value used in comparison
             extended_mask += extended_mask[-1]
 
         return cls(
@@ -216,9 +170,9 @@ class Context:
         self._state.set_state(inputs, constants, temps, outputs, address)
         self._update()
 
-    def to_dict(self, inputs_only: bool = False):
+    def to_dict(self, *, inputs_only: bool = False):
         """Returns a dictionary representation of this context."""
-        return self._state.to_dict(inputs_only)
+        return self._state.to_dict(inputs_only=inputs_only)
 
     def apply(self, step):
         self._state.apply(step)
@@ -229,34 +183,30 @@ class Context:
         new.from_dict(self.to_dict())
         return new
 
-    def _get_reg_and_mask(
-        self, reg_ref: RegisterReference, extend: bool = False
-    ) -> Tuple[Register, str]:
-        reg = Register(
-            reg_ref.raw_name, *self._state.get_register_value(reg_ref.canonical_name)
-        )
+    def _get_reg_and_mask(self, reg_ref: RegisterReference, *, extend: bool = False) -> tuple[Register, str]:
+        reg = Register(reg_ref.raw_name, *self._state.get_register_value(reg_ref.canonical_name))
 
         if extend:
-            return reg, reg_ref.extended_mask
+            return reg, reg_ref.extended_mask if reg_ref.extended_mask else ""
         return reg, reg_ref.mask
 
-    def get(self, source: str) -> Tuple[float, float, float, float]:
+    def get(self, source: str) -> tuple[float, float, float, float]:
         register_ref = RegisterReference.from_source(source)
-        reg, mask = self._get_reg_and_mask(register_ref, True)
+        reg, mask = self._get_reg_and_mask(register_ref, extend=True)
 
         ret = reg.get(mask)
         if register_ref.negate:
             ret = [-1 * val for val in ret]
         return ret[0], ret[1], ret[2], ret[3]
 
-    def set(self, target: str, value: Tuple[float, float, float, float]):
+    def set(self, target: str, value: tuple[float, float, float, float]):
         register_ref = RegisterReference.from_source(target)
         reg, mask = self._get_reg_and_mask(register_ref)
         reg.set(mask, value)
         self._update()
 
     def _update(self):
-        def convert_register_list(lst: List) -> List[Register]:
+        def convert_register_list(lst: list) -> list[Register]:
             return [Register(*x) for x in lst]
 
         vals = self.to_dict()
@@ -267,11 +217,11 @@ class Context:
         self._outputs = convert_register_list(vals["output"])
 
     @property
-    def inputs(self) -> List[Register]:
+    def inputs(self) -> list[Register]:
         return self._inputs
 
     @property
-    def constants(self) -> List[Register]:
+    def constants(self) -> list[Register]:
         return self._constants
 
     @property
@@ -279,33 +229,27 @@ class Context:
         return self._address
 
     @property
-    def temps(self) -> List[Register]:
+    def temps(self) -> list[Register]:
         return self._temps
 
     @property
-    def outputs(self) -> List[Register]:
+    def outputs(self) -> list[Register]:
         return self._outputs
 
 
 class Step:
     """Models a single step in a Shader Trace."""
 
-    def __init__(
-        self, index: int, source: str, state: Context, instruction: Nv2aVshStep
-    ):
+    def __init__(self, index: int, source: str, state: Context, instruction: Nv2aVshStep):
         self._index = index
         self._source = source
         self._state = state
         self._instruction = instruction
 
-        self._inputs: Dict[str, List[RegisterReference]] = _extract_inputs(instruction)
-        self._outputs: Dict[str, List[RegisterReference]] = _extract_outputs(
-            instruction
-        )
+        self._inputs: dict[str, list[RegisterReference]] = _extract_inputs(instruction)
+        self._outputs: dict[str, list[RegisterReference]] = _extract_outputs(instruction)
 
-        self._ancestors: Optional[
-            Dict[str, Tuple[List["Ancestor"], Set[RegisterReference]]]
-        ] = None
+        self._ancestors: dict[str, tuple[list[Ancestor], set[RegisterReference]]] | None = None
 
     def to_dict(self) -> dict:
         """Returns a dictionary representation of this Step."""
@@ -334,7 +278,7 @@ class Step:
     @property
     def ancestors(
         self,
-    ) -> Optional[Dict[str, Tuple[List["Ancestor"], Set[RegisterReference]]]]:
+    ) -> dict[str, tuple[list[Ancestor], set[RegisterReference]]] | None:
         """Returns information about previous Steps that have directly contributed to inputs of this Step.
 
         The returned dictionary contains entries for the "mac" and/or "ilu" stage of this Step. The associated value is
@@ -343,14 +287,13 @@ class Step:
         these should be input registers or constant registers)."""
         return self._ancestors
 
-    def get_ancestors_for_stage(
-        self, mac_or_ilu: str
-    ) -> Tuple[List["Ancestor"], Set[RegisterReference]]:
+    def get_ancestors_for_stage(self, mac_or_ilu: str) -> tuple[list[Ancestor], set[RegisterReference]]:
+        if not self._ancestors:
+            msg = f"get_ancestors_for_stage {mac_or_ilu!r} called without any ancestors"
+            raise ValueError(msg)
         return self._ancestors.get(mac_or_ilu, ([], set()))
 
-    def _set_ancestors(
-        self, val: Optional[Dict[str, Tuple[List["Ancestor"], Set[RegisterReference]]]]
-    ) -> None:
+    def _set_ancestors(self, val: dict[str, tuple[list[Ancestor], set[RegisterReference]]] | None) -> None:
         self._ancestors = val
 
     def has_stage(self, mac_or_ilu: str) -> bool:
@@ -358,11 +301,11 @@ class Step:
         return self._instruction.get(mac_or_ilu) is not None
 
     @property
-    def inputs(self) -> Dict[str, List[RegisterReference]]:
+    def inputs(self) -> dict[str, list[RegisterReference]]:
         return self._inputs
 
     @property
-    def joined_inputs(self) -> List[RegisterReference]:
+    def joined_inputs(self) -> list[RegisterReference]:
         """Returns the combined inputs used by the MAC and ILU portions of this Step."""
         ret = []
         for refs in self._inputs.values():
@@ -370,11 +313,11 @@ class Step:
         return ret
 
     @property
-    def outputs(self) -> Dict[str, List[RegisterReference]]:
+    def outputs(self) -> dict[str, list[RegisterReference]]:
         return self._outputs
 
     @property
-    def joined_outputs(self) -> List[RegisterReference]:
+    def joined_outputs(self) -> list[RegisterReference]:
         """Returns the combined outputs from the MAC and ILU portions of this Step."""
         ret = []
         for refs in self._outputs.values():
@@ -393,15 +336,13 @@ class Ancestor:
 
     step: Step
     mac_or_ilu: str
-    components: FrozenSet[Tuple[str, str]]
+    components: frozenset[tuple[str, str]]
 
 
 class Trace:
     """Provides verbose information about each step in a shader program."""
 
-    def __init__(
-        self, input_context: Context, steps: List[Step], output_context: Context
-    ):
+    def __init__(self, input_context: Context, steps: list[Step], output_context: Context):
         self._input_context = input_context
         self._steps = steps
         self._output_context = output_context
@@ -443,9 +384,9 @@ class Shader:
         self._instructions = []
         self._input_context = Context()
 
-    def set_source(self, source_code: str) -> List[str]:
+    def set_source(self, source_code: str) -> list[str]:
         """Sets the source code for this shader."""
-        machine_code, errors = nv2avsh.assemble.assemble(source_code)
+        machine_code, errors = nv2a_vsh.assemble.assemble(source_code)
         if errors:
             return [f"{error.line}:{error.column}: {error.message}" for error in errors]
         self._instructions = [Nv2aVshStep(token) for token in machine_code]
@@ -466,12 +407,12 @@ class Shader:
     def initial_state(self) -> Context:
         return self._input_context
 
-    def _apply(self, instruction, input: Context) -> Context:
-        output = input.duplicate()
+    def _apply(self, instruction, input_context: Context) -> Context:
+        output = input_context.duplicate()
         output.apply(instruction)
         return output
 
-    def _simulate(self) -> Tuple[List[Tuple[str, Context, Nv2aVshStep]], Context]:
+    def _simulate(self) -> tuple[list[tuple[str, Context, Nv2aVshStep]], Context]:
         active_state = self._input_context
         states = []
         for line, instruction in zip(self._reformatted_source, self._instructions):
@@ -480,15 +421,15 @@ class Shader:
 
         return states, active_state
 
-    def explain(self, process_ancestors: bool = True) -> Trace:
+    def explain(self, *, process_ancestors: bool = True) -> Trace:
         """Returns a Trace providing details about the execution state of this shader."""
         steps, output = self._simulate()
-        step_objects = []
+        step_objects: list[Step] = []
         for idx, (source, step_output, instruction) in enumerate(steps):
             new_step = Step(idx, source, step_output, instruction)
             if process_ancestors:
                 ancestors = _find_ancestors(new_step, step_objects)
-                new_step._set_ancestors(ancestors)
+                new_step._set_ancestors(ancestors)  # noqa: SLF001 Private member accessed
 
             step_objects.append(new_step)
 
@@ -497,19 +438,19 @@ class Shader:
 
 def _find_ancestors(
     new_step: Step,
-    previous_steps: List[Step],
-) -> Dict[str, Tuple[List[Ancestor], Set[RegisterReference]]]:
+    previous_steps: Reversible[Step],
+) -> dict[str, tuple[list[Ancestor], set[RegisterReference]]]:
     """Attempts to find contributors to the inputs of the given `new_step`
 
-    Returns a dict of mac|ilu to a list of Ancestor instances that contribute to the mac|ilu of `new_step` and a Set of
+    Returns a dict of mac|ilu to a list of Ancestor instances that contribute to the mac|ilu of `new_step` and a set of
     RegisterReferences that are unsatisfied.
     """
 
     inputs = deepcopy(new_step.inputs)
-    previous_steps = reversed(previous_steps)
+    reversed_previous_steps: reversed[Step] = reversed(previous_steps)
 
     def find_dependent_components(
-        input: RegisterReference, outputs: List[RegisterReference]
+        input_register: RegisterReference, outputs: list[RegisterReference]
     ) -> dict[str, str]:
         """Removes overlapping masks between the given outputs and input, returning satisfied components.
 
@@ -518,12 +459,12 @@ def _find_ancestors(
 
         ret = {}
         for out_ref in outputs:
-            dependent_components = input.destructively_satisfy(out_ref)
+            dependent_components = input_register.destructively_satisfy(out_ref)
             if not dependent_components:
                 continue
 
             ret[out_ref.canonical_name] = dependent_components
-            if not input.mask:
+            if not input_register.mask:
                 break
 
         return ret
@@ -535,9 +476,9 @@ def _find_ancestors(
             if not inputs[key]:
                 del inputs[key]
 
-    ancestors = collections.defaultdict(list)
+    ancestors: dict[str, list[Ancestor]] = collections.defaultdict(list)
 
-    for prev in previous_steps:
+    for prev in reversed_previous_steps:
         prev_outputs = prev.outputs
 
         for in_key, in_refs in inputs.items():
@@ -548,9 +489,7 @@ def _find_ancestors(
                 for out_key, out_refs in prev_outputs.items():
                     components = find_dependent_components(in_ref, out_refs)
                     if components:
-                        ancestor = Ancestor(
-                            prev, out_key, frozenset(components.items())
-                        )
+                        ancestor = Ancestor(prev, out_key, frozenset(components.items()))
                         if ancestor not in ancestors[in_key]:
                             ancestors[in_key].append(ancestor)
 
@@ -560,7 +499,7 @@ def _find_ancestors(
 
     # Return a map of mac|ilu to ([Ancestors], {RegisterRefs (unsatisfied)})
     ret = {}
-    for in_key in new_step.inputs.keys():
+    for in_key in new_step.inputs:
         ret[in_key] = (
             ancestors.get(in_key, []),
             set(inputs.get(in_key, [])),
@@ -569,28 +508,26 @@ def _find_ancestors(
     return ret
 
 
-def _extract_inputs(ins: Nv2aVshStep) -> Dict[str, List[RegisterReference]]:
+def _extract_inputs(ins: Nv2aVshStep) -> dict[str, list[RegisterReference]]:
     """Returns a dictionary mapping mac|ilu to registers referenced as inputs to the instruction."""
     return _extract_register_references(ins, "inputs")
 
 
-def _extract_outputs(ins: Nv2aVshStep) -> Dict[str, List[RegisterReference]]:
+def _extract_outputs(ins: Nv2aVshStep) -> dict[str, list[RegisterReference]]:
     """Returns a dictionary mapping mac|ilu to registers referenced as outputs of the instruction."""
     return _extract_register_references(ins, "outputs")
 
 
-def _extract_register_references(
-    ins: Nv2aVshStep, key: str
-) -> Dict[str, List[RegisterReference]]:
-    """Returns a dict mapping mac and/or ilu to a dict mapping register name to Set[mask] for the given key."""
+def _extract_register_references(ins: Nv2aVshStep, key: str) -> dict[str, list[RegisterReference]]:
+    """Returns a dict mapping mac and/or ilu to a dict mapping register name to set[mask] for the given key."""
     ret = collections.defaultdict(list)
 
     def process_instruction(mac_or_ilu: str):
-        map = ins.get(mac_or_ilu)
-        if not map:
+        mapping = ins.get(mac_or_ilu)
+        if not mapping:
             return
 
-        for element in map[key]:
+        for element in mapping[key]:
             ret[mac_or_ilu].append(RegisterReference.from_source(element))
 
     process_instruction("mac")
