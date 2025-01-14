@@ -1,21 +1,20 @@
 """Provides functionality to render the editor."""
 
-from typing import Dict
-from typing import Optional
-from typing import Set
+from __future__ import annotations
 
-from textual.app import ComposeResult
-from textual.containers import Center
-from textual.containers import Horizontal
-from textual.containers import Middle
-from textual.containers import Vertical
-from textual.widgets import Label
+from typing import TYPE_CHECKING
+
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
 
-from nv2adbg import simulator
-from nv2adbg._code_panel import _CodePanel
-from nv2adbg._input_panel import _InputPanel
-from nv2adbg._output_panel import _OutputPanel
+from nv2a_debug._code_panel import _CodePanel
+from nv2a_debug._input_panel import _InputPanel
+from nv2a_debug._output_panel import _OutputPanel
+
+if TYPE_CHECKING:
+    from textual.app import ComposeResult
+
+    from nv2a_debug import simulator
 
 
 class _Editor(Static):
@@ -38,9 +37,9 @@ class _Editor(Static):
     }
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self._trace: Optional[simulator.Trace] = None
+        self._trace: simulator.Trace | None = None
 
         self._code_panel = _CodePanel()
         self._input_panel = _InputPanel()
@@ -58,9 +57,11 @@ class _Editor(Static):
             yield self._output_panel
         self._code_panel.focus()
 
-    def on__code_panel_active_line_changed(
-        self, message: _CodePanel.ActiveLineChanged
-    ) -> None:
+    def on__code_panel_active_line_changed(self, message: _CodePanel.ActiveLineChanged) -> None:
+        if message.step is None:
+            msg = f"on__code_panel_active_line_changed called with invalid message {message!r}, missing `step`"
+            raise ValueError(msg)
+
         self._output_panel.set_step(message.step)
         self._input_panel.set_step(message.step)
 

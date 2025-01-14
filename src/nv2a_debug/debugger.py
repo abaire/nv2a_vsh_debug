@@ -2,58 +2,45 @@
 
 """Assembles nv2a vertex shader machine code."""
 
+# ruff: noqa: T201 `print` found
+# ruff: noqa: RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+
+from __future__ import annotations
+
 import argparse
 import json
 import logging
 import os
 import sys
 
-from textual.app import App
-from textual.app import ComposeResult
+from textual.app import App, ComposeResult
 from textual.reactive import reactive
-from textual.widgets import ContentSwitcher
-from textual.widgets import Footer
-from textual.widgets import Header
-from textual.widgets import TabbedContent
-from textual.widgets import TabPane
+from textual.screen import Screen
+from textual.widgets import ContentSwitcher, Footer, Header, TabbedContent, TabPane
 
-from nv2adbg import simulator
-from nv2adbg._editor import _Editor
-from nv2adbg._error_message import _CenteredErrorMessage
-from nv2adbg._file_menu import _FileMenu
-from nv2adbg._program_inputs_viewer import _ProgramInputsViewer
-from nv2adbg._program_outputs_viewer import _ProgramOutputsViewer
-from nv2adbg._program_vertex_viewer import _ProgramVertexViewer
-from nv2adbg._shader_program import _ShaderProgram
+from nv2a_debug import simulator
+from nv2a_debug._editor import _Editor
+from nv2a_debug._error_message import _CenteredErrorMessage
+from nv2a_debug._file_menu import _FileMenu
+from nv2a_debug._program_inputs_viewer import _ProgramInputsViewer
+from nv2a_debug._program_outputs_viewer import _ProgramOutputsViewer
+from nv2a_debug._program_vertex_viewer import _ProgramVertexViewer
+from nv2a_debug._shader_program import _ShaderProgram
 
 
-class _App(App):
-    """Main application."""
-
-    TITLE = "nv2a Debugger"
-    BINDINGS = [
-        ("f1", "open_file", "File menu"),
-        ("f10", "app.toggle_dark", "Toggle dark mode"),
-        ("escape,q", "app.quit", "Quit"),
-    ]
-
-    CSS = """
-    /* Workaround for Textualize#2408 */
-    TabbedContent ContentSwitcher {
-        height: 1fr;
-    }
-    """
-
-    _active_content = reactive("no-content", init=False)
-
+class _AppScreen(Screen):
     def __init__(self, program: _ShaderProgram):
         super().__init__()
         self._program = program
-        self._editor = _Editor()
+        self._editor: _Editor = _Editor()
         self._program_inputs = _ProgramInputsViewer()
         self._program_outputs = _ProgramOutputsViewer()
         self._program_vertices = _ProgramVertexViewer()
-        self._editor_content_switcher = ContentSwitcher(initial=self._active_content)
+        self._editor_content_switcher = ContentSwitcher()
+
+    def on_mount(self) -> None:
+        self._load_program()
+        self._editor_content_switcher.current = self._active_content
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -89,12 +76,12 @@ class _App(App):
             self._program.mesh_inputs_file = mesh_inputs_file
             self._program.constants_file = constants_file
             self._load_program()
-            self.pop_screen()
+            self.app.pop_screen()
 
         def on_cancel():
-            self.pop_screen()
+            self.app.pop_screen()
 
-        self.push_screen(
+        self.app.push_screen(
             _FileMenu(
                 on_accept,
                 on_cancel,
@@ -104,9 +91,6 @@ class _App(App):
                 self._program.constants_file,
             )
         )
-
-    def on_mount(self) -> None:
-        self._load_program()
 
     def _load_program(self):
         if not self._program.loaded:
@@ -124,24 +108,49 @@ class _App(App):
     def set_shader_trace(self, shader_trace: simulator.Trace):
         self._editor.set_shader_trace(shader_trace)
         self._program_inputs.set_context(shader_trace.input_context)
-        self._program_outputs.set_context(
-            shader_trace.input_context, shader_trace.output_context
-        )
+        self._program_outputs.set_context(shader_trace.input_context, shader_trace.output_context)
 
     def _watch__active_content(self, _old_val: str, new_val: str):
         del _old_val
         self._editor_content_switcher.current = new_val
 
-    def _on__program_vertex_viewer_active_vertex_changed(
-        self, event: _ProgramVertexViewer.ActiveVertexChanged
-    ):
+    def _on__program_vertex_viewer_active_vertex_changed(self, event: _ProgramVertexViewer.ActiveVertexChanged):
         del event
         self.set_shader_trace(self._program.shader_trace)
 
 
+class _App(App):
+    """Main application."""
+
+    TITLE = "nv2a Debugger"
+    BINDINGS = [
+        ("f1", "open_file", "File menu"),
+        ("f10", "app.toggle_dark", "Toggle dark mode"),
+        ("escape,q", "app.quit", "Quit"),
+    ]
+
+    CSS = """
+    /* Workaround for Textualize#2408 */
+    TabbedContent ContentSwitcher {
+        height: 1fr;
+    }
+    """
+
+    _active_content = reactive("no-content", init=False)
+
+    def __init__(self, program: _ShaderProgram):
+        super().__init__()
+        self._program = program
+        self._app_screen: _AppScreen
+
+    def on_mount(self) -> None:
+        self._app_screen = _AppScreen(self._program)
+        self.push_screen(self._app_screen)
+
+
 def _emit_input_template():
     ctx = simulator.Context()
-    values = ctx.to_dict(True)
+    values = ctx.to_dict(inputs_only=True)
     json.dump(values, sys.stdout, indent=2, sort_keys=True)
 
 
@@ -174,9 +183,7 @@ def _main(args):
         print(f"Failed to open source file '{args.source}'", file=sys.stderr)
         return 1
 
-    program = _ShaderProgram(
-        args.source, args.inputs, args.renderdoc_mesh, args.renderdoc_constants
-    )
+    program = _ShaderProgram(args.source, args.inputs, args.renderdoc_mesh, args.renderdoc_constants)
 
     if args.json:
         json.dump(program.shader_trace.to_dict(), sys.stdout, indent=2, sort_keys=True)

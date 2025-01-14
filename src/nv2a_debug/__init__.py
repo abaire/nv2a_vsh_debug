@@ -1,5 +1,6 @@
 """Setuptools entrypoint for debugger."""
-from . import debugger
+
+from nv2a_debug import debugger
 
 
 def run():

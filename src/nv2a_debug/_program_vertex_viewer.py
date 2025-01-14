@@ -1,20 +1,24 @@
 """Provides functionality to browse the input state."""
 
-from typing import Dict
-from typing import Optional
+# ruff: noqa: RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
 
-from rich.console import RenderableType
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from rich.text import Text
-from textual.app import ComposeResult
 from textual.css import query
 from textual.messages import Message
 from textual.reactive import reactive
-from textual.widgets import ContentSwitcher
-from textual.widgets import DataTable
-from textual.widgets import Static
+from textual.widgets import ContentSwitcher, DataTable, Static
 
-from nv2adbg._error_message import _CenteredErrorMessage
-from nv2adbg._shader_program import _ShaderProgram
+if TYPE_CHECKING:
+    from rich.console import RenderableType
+    from textual.app import ComposeResult
+
+    from nv2a_debug._shader_program import _ShaderProgram
+
+from nv2a_debug._error_message import _CenteredErrorMessage
 
 
 class _ProgramVertexViewer(Static):
@@ -41,11 +45,11 @@ class _ProgramVertexViewer(Static):
 
     _active_content = reactive("no-content", init=False)
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self._program: Optional[_ShaderProgram] = None
+        self._program: _ShaderProgram | None = None
 
-        self._vertex_table = DataTable(id="content")
+        self._vertex_table: DataTable = DataTable(id="content")
         self._vertex_table.add_columns(
             "Index",
             "v0",
@@ -68,9 +72,9 @@ class _ProgramVertexViewer(Static):
         self._vertex_table.cursor_type = "row"
         self._vertex_table.zebra_stripes = True
 
-        self._row_index_to_vertex_id: Dict[int, int] = {}
+        self._row_index_to_vertex_id: dict[int, int] = {}
 
-    def set_program(self, program: Optional[_ShaderProgram]):
+    def set_program(self, program: _ShaderProgram | None):
         self._program = program
         self._populate()
         self.update()
@@ -91,6 +95,10 @@ class _ProgramVertexViewer(Static):
         self._vertex_table.action_select_cursor()
 
     def _on_data_table_row_selected(self, event: DataTable.RowSelected):
+        if not self._program:
+            msg = "_on_data_table_row_selected called without self._program"
+            raise ValueError(msg)
+
         vertex_index = self._row_index_to_vertex_id[event.cursor_row]
         if self._program.set_active_vertex_index(vertex_index):
             self.post_message(self.ActiveVertexChanged(vertex_index))
@@ -109,7 +117,7 @@ class _ProgramVertexViewer(Static):
                 self._row_index_to_vertex_id[row] = int(vertex["VTX"])
                 self._vertex_table.add_row(
                     vertex["IDX"],
-                    *[_render_vertex(vertex, f"v{idx}") for idx in range(0, 16)],
+                    *[_render_vertex(vertex, f"v{idx}") for idx in range(16)],
                 )
 
             self._active_content = "content"

@@ -2,8 +2,7 @@
 
 from rich.console import RenderableType
 from textual.app import ComposeResult
-from textual.containers import Center
-from textual.containers import Middle
+from textual.containers import Center, Middle
 from textual.widgets import Label
 
 

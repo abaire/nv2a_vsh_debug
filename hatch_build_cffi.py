@@ -1,28 +1,47 @@
-#!/usr/bin/env python3
-import glob
-import os.path
+"""Custom build hook to generate parser using Antlr."""
+
+# ruff: noqa: S607 Starting a process with a partial executable path
+# ruff: noqa: TRY002 Create your own exception
+# ruff: noqa: PLR2004 Magic value used in comparison
+
+from __future__ import annotations
+
+import platform
 import shutil
 import struct
 import subprocess
-import platform
-from distutils.command.build_ext import build_ext
+from pathlib import Path
 
-ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
-NV2A_VSH_CPU_DIR = os.path.join(ROOT_DIR, "thirdparty", "nv2a_vsh_cpu")
-BUILD_DIR = os.path.join(ROOT_DIR, "build")
-
-if platform.system() == "Windows":
-    LIBRARY_DIR = os.path.join(BUILD_DIR, "Release")
-else:
-    LIBRARY_DIR = BUILD_DIR
+from cffi import FFI
+from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
-class FfiPreBuildExtension(build_ext):
-    def pre_run(self, ext, ffi):
+class GenerateBindingsBuildHook(BuildHookInterface):
+    """Hatchling plugin to generate the VSH CPU bindings using CFFI"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.root_dir = Path(".").resolve()
+        self.nv2a_vsh_cpu_src_dir = self.root_dir / "thirdparty" / "nv2a_vsh_cpu"
+        self.build_dir = self.root_dir / "build" / "ffi"
+        self.cffi_output_dir = self.build_dir / "cffi-output"
+        self.library_dir = self.build_dir / "Release" if platform.system() == "Windows" else self.build_dir
+        self.install_dir = self.root_dir / "src" / "nv2a_debug" / "lib"
+
+    def initialize(self, version, build_data):
+        del version
+        del build_data
+        shutil.rmtree(self.build_dir, ignore_errors=True)
+        shutil.rmtree(self.install_dir, ignore_errors=True)
+        self._build_nv2a_vsh_cpu()
+        self._generate_ffi()
+
+    def _build_nv2a_vsh_cpu(self):
         try:
-            out = subprocess.check_output(["cmake", "--version"])
-        except OSError:
-            raise RuntimeError("Please install CMake to build")
+            subprocess.check_output(["cmake", "--version"])
+        except OSError as err:
+            msg = "CMake [https://cmake.org/cmake] is required"
+            raise RuntimeError(msg) from err
 
         cmake_config_args = [
             "-DCMAKE_VERBOSE_MAKEFILE:BOOL=ON",
@@ -39,26 +58,41 @@ class FfiPreBuildExtension(build_ext):
             [
                 "cmake",
                 "-B",
-                "build",
+                self.build_dir,
                 "-S",
-                NV2A_VSH_CPU_DIR,
-            ]
-            + cmake_config_args,
-            cwd=ROOT_DIR,
+                self.nv2a_vsh_cpu_src_dir,
+                *cmake_config_args,
+            ],
+            cwd=self.root_dir,
         )
         subprocess.check_call(
             [
                 "cmake",
                 "--build",
-                "build",
+                self.build_dir,
                 "--parallel",
                 "--verbose",
                 "--target",
                 "nv2a_vsh_emulator",
-            ]
-            + cmake_build_args,
-            cwd=ROOT_DIR,
+                *cmake_build_args,
+            ],
+            cwd=self.root_dir,
         )
+
+    def _generate_ffi(self):
+        ffi = FFI()
+        ffi.set_source(
+            module_name="_nv2a_vsh_cpu",
+            source=_SRC,
+            libraries=["nv2a_vsh_emulator", "nv2a_vsh_disassembler", "nv2a_vsh_cpu"],
+            include_dirs=[str(self.nv2a_vsh_cpu_src_dir / "src")],
+            library_dirs=[str(self.library_dir)],
+        )
+        ffi.cdef(_CDEF)
+
+        output_file = ffi.compile(tmpdir=str(self.cffi_output_dir), verbose=True)
+        self.install_dir.mkdir(exist_ok=True)
+        shutil.copy(output_file, self.install_dir)
 
 
 _SRC = """
@@ -178,22 +212,3 @@ void nv2a_vsh_emu_apply(Nv2aVshExecutionState *state, const Nv2aVshStep *step);
 
 Nv2aVshParseResult nv2a_vsh_parse_step(Nv2aVshStep *out, const uint32_t *token);
 """
-
-
-def ffibuilder():
-    from cffi import FFI
-
-    ffi = FFI()
-    ffi.set_source(
-        "_nv2a_vsh_cpu",
-        _SRC,
-        libraries=["nv2a_vsh_emulator", "nv2a_vsh_disassembler", "nv2a_vsh_cpu"],
-        include_dirs=[os.path.join(NV2A_VSH_CPU_DIR, "src")],
-        library_dirs=[LIBRARY_DIR],
-    )
-    ffi.cdef(_CDEF)
-    return ffi
-
-
-if __name__ == "__main__":
-    ffibuilder().compile(verbose=True)

@@ -13,110 +13,97 @@ on:
       - '!.github/workflows/**'
       - 'README.md'
   release:
-    types: [published]
+    types: [ published ]
+  workflow_dispatch:
 
 jobs:
-  build_sdist:
-    name: Build Python source distribution
+  select-python-version-for-publishing:
     runs-on: ubuntu-latest
+    outputs:
+      python-version: ${{ steps.select-version.outputs.version }}
+    steps:
+      - id: select-version
+        run: echo "version=3.9" >> $GITHUB_OUTPUT
+
+
+  build:
+    needs: [ select-python-version-for-publishing ]
+    name: Build Python sdist and wheel for ${{ matrix.python-version }} on ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+
+    strategy:
+      matrix:
+        platform: [ ubuntu-latest, macos-latest, windows-latest ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
           submodules: recursive
-      - uses: actions/setup-python@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
-      - name: Build sdist
-        run: python setup.py sdist
-      - uses: actions/upload-artifact@v3
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Hatch
+        uses: pypa/hatch@257e27e51a6a5616ed08a39a408a21c35c9931bc
+
+      - name: Hatch fmt and type check
+        run: |
+          hatch fmt --check
+          hatch run types:check
+
+      - name: Build sdist and wheel
+        run: |
+          hatch build
+
+      - name: Test
+        run: |
+          hatch test
+
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v4
+        if: matrix.python-version == needs.select-python-version-for-publishing.outputs.python-version
         with:
-          name: source
+          name: source-${{ matrix.platform }}-${{ matrix.python-version }}
           path: dist/*.tar.gz
 
-  run_pytest:
-    name: Run tests and coverage
-    needs: build_sdist
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-python@v4
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        if: matrix.python-version == needs.select-python-version-for-publishing.outputs.python-version
         with:
-          python-version: "3.9"
-      - name: Install dependencies
-        run: |
-          python3 -m pip install --upgrade pip setuptools wheel pytest
-      - name: Download source distribution
-        uses: actions/download-artifact@v3
-        with:
-          name: source
-      - name: Get package name
-        run: python -c "import os, glob; open(os.environ['GITHUB_ENV'], 'w').write('PKG=' + glob.glob('nv2a_debug-*.tar.gz')[0][0:-7] + '\n')"
-      - name: Unpack source distribution
-        run: tar -xf ${{ env.PKG }}.tar.gz
-      - name: Install package
-        run: |
-          cd ${{ env.PKG }}
-          pip3 install -e .
-      - name: Test with pytest
-        run: |
-          cd ${{ env.PKG }}
-          pytest  --doctest-modules --junitxml=junit/test-results.xml
+          name: wheel-${{ matrix.platform }}-${{ matrix.python-version }}
+          path: dist/*.whl
 
-  build_wheels:
-    needs: [run_pytest, build_sdist]
-    name: Build wheel on ${{ matrix.platform }}
-    runs-on: ${{ matrix.platform }}
-    strategy:
-      matrix:
-        platform: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.9"
-      - name: Download source distribution
-        uses: actions/download-artifact@v3
-        with:
-          name: source
-      - name: Get package name
-        run: python -c "import os, glob; open(os.environ['GITHUB_ENV'], 'w').write('PKG=' + glob.glob('nv2a_debug-*.tar.gz')[0][0:-7] + '\n')"
-      - name: Unpack source distribution
-        run: tar -xf ${{ env.PKG }}.tar.gz
-      - name: Install cibuildwheel
-        run: python -m pip install cibuildwheel==2.7.0
-      - name: Build wheels for PyPy
-        run: |
-          python -m cibuildwheel --output-dir wheelhouse ${{ env.PKG }}
-        env:
-          LD_LIBRARY_PATH: .
-          CIBW_BUILD: "pp39-*"
-          CIBW_BEFORE_BUILD_LINUX: pip install cmake
-          CIBW_BUILD_VERBOSITY: 1
-      - uses: actions/upload-artifact@v3
-        with:
-          name: wheels
-          path: ./wheelhouse/*.whl
 
   upload_pypi:
-    needs: [build_wheels, build_sdist]
+    needs: [ build ]
     name: Upload Python distribution to PyPI
     runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: source
           path: dist
-      - uses: actions/download-artifact@v3
+
+      - uses: actions/download-artifact@v4
         with:
           name: wheels
           path: dist
+
       - uses: pypa/gh-action-pypi-publish@release/v1
-        if: github.event_name == 'release' && github.event.release.prerelease
+        if: github.event.release.prerelease
         with:
           user: __token__
           password: ${{ secrets.TESTPYPI_API_TOKEN }}
           repository-url: https://test.pypi.org/legacy/
+
       - uses: pypa/gh-action-pypi-publish@release/v1
-        if: github.event_name == 'release' && !github.event.release.prerelease
+        if: github.event.release.prerelease == false
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}

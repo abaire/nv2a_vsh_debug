@@ -1,18 +1,20 @@
 """Provides functionality to render the File menu."""
+
+# ruff: noqa: RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+
+from __future__ import annotations
+
 import os.path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable, cast
 
 from textual import on
-from textual.app import ComposeResult
-from textual.containers import Center
-from textual.containers import Horizontal
+from textual.containers import Center, Horizontal
 from textual.screen import ModalScreen
-from textual.widgets import Button
-from textual.widgets import Input
-from textual.widgets import Label
+from textual.validation import ValidationResult, Validator
+from textual.widgets import Button, Input, Label
 
-from textual.validation import ValidationResult
-from textual.validation import Validator
+if TYPE_CHECKING:
+    from textual.app import ComposeResult
 
 
 class _FileMenu(ModalScreen):
@@ -55,21 +57,19 @@ class _FileMenu(ModalScreen):
         self._mesh_inputs_file = mesh_inputs_file
         self._constants_file = constants_file
 
-        self._apply_button = Button(
-            "Apply", variant="primary", id="apply", disabled=True
-        )
+        self._apply_button = Button("Apply", variant="primary", id="apply", disabled=True)
 
     def on_mount(self) -> None:
         self._check_validation()
 
     def _check_validation(self):
         self._apply_button.disabled = any(
-            [not i.validate(i.value).is_valid for i in self.query(Input)]
+            [not i.validate(i.value).is_valid for i in self.query(Input)]  # noqa: C419 Unnecessary list comprehension
         )
 
     @on(Input.Changed)
     def _update_validation(self, event: Input.Changed) -> None:
-        if not event.validation_result.is_valid:
+        if not event.validation_result or not event.validation_result.is_valid:
             self._apply_button.disabled = True
         else:
             self._check_validation()
@@ -116,10 +116,10 @@ class _FileMenu(ModalScreen):
     def _on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "apply":
             self._on_accept(
-                self.get_widget_by_id("source").value,
-                self.get_widget_by_id("inputs").value,
-                self.get_widget_by_id("mesh").value,
-                self.get_widget_by_id("constants").value,
+                cast(Input, self.get_widget_by_id("source")).value,
+                cast(Input, self.get_widget_by_id("inputs")).value,
+                cast(Input, self.get_widget_by_id("mesh")).value,
+                cast(Input, self.get_widget_by_id("constants")).value,
             )
         elif event.button.id == "cancel":
             self._on_cancel()
@@ -136,5 +136,5 @@ class ExistingFile(Validator):
 
         if not value or os.path.isfile(value):
             return self.success()
-        else:
-            return self.failure("No such file")
+
+        return self.failure("No such file")

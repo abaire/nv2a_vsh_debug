@@ -1,19 +1,22 @@
 """Provides functionality to browse the end state of the shader."""
 
-from typing import List
-from typing import Optional
+# ruff: noqa: RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
 
-from textual.app import Binding
-from textual.app import ComposeResult
-from textual.css import query
+from __future__ import annotations
+
+import contextlib
+from typing import TYPE_CHECKING
+
+from textual.app import Binding, ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import ContentSwitcher
-from textual.widgets import Static
+from textual.css import query
+from textual.widgets import ContentSwitcher, Static
 
-from nv2adbg._error_message import _CenteredErrorMessage
-from nv2adbg._register_view import _RegisterSetPanel
-from nv2adbg.simulator import Context
-from nv2adbg.simulator import Register
+from nv2a_debug._error_message import _CenteredErrorMessage
+from nv2a_debug._register_view import _RegisterSetPanel
+
+if TYPE_CHECKING:
+    from nv2a_debug.simulator import Context, Register
 
 _OUTPUT_REGISTER_TO_FRIENDLY_NAME = {
     "o0": "oPos",
@@ -49,11 +52,11 @@ class _ProgramOutputsViewer(Static):
         Binding("end", "cursor_end", "Cursor end", show=False),
     ]
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.can_focus = True
-        self._input_context: Optional[Context] = None
-        self._output_context: Optional[Context] = None
+        self._input_context: Context | None = None
+        self._output_context: Context | None = None
 
         self._scroll_area = VerticalScroll(id="content")
         self._outputs_panel = _RegisterSetPanel("Outputs")
@@ -68,13 +71,9 @@ class _ProgramOutputsViewer(Static):
         def rename_output_register(name: str) -> str:
             return _OUTPUT_REGISTER_TO_FRIENDLY_NAME.get(name, name)
 
-        self._outputs_panel.set_registers(
-            output_context.outputs, rename_output_register
-        )
+        self._outputs_panel.set_registers(output_context.outputs, rename_output_register)
 
-        constants = _filter_unchanged(
-            self._input_context.constants, self._output_context.constants
-        )
+        constants = _filter_unchanged(self._input_context.constants, self._output_context.constants)
 
         def rename_constant_register(name: str) -> str:
             return f"c[{name[1:]}]"
@@ -87,16 +86,15 @@ class _ProgramOutputsViewer(Static):
         self._temps_panel.display = bool(temps)
 
         self._address_panel.set_registers([output_context.address])
-        try:
+
+        # Ignore context being set prior to composition.
+        with contextlib.suppress(query.NoMatches):
             self.query_one(ContentSwitcher).current = self._activeContentId
-        except query.NoMatches:
-            # Ignore context being set prior to composition.
-            pass
 
         self.update()
 
     @property
-    def _activeContentId(self) -> str:
+    def _activeContentId(self) -> str:  # noqa: N802 Function name should be lowercase
         if not self._input_context:
             return "no-input-context"
 
@@ -105,7 +103,6 @@ class _ProgramOutputsViewer(Static):
         return "content"
 
     def compose(self) -> ComposeResult:
-
         with ContentSwitcher(initial=self._activeContentId):
             yield _CenteredErrorMessage(
                 "No input context available, load data via the File menu.",
@@ -142,6 +139,6 @@ class _ProgramOutputsViewer(Static):
         self._scroll_area.scroll_end()
 
 
-def _filter_unchanged(old: List[Register], new: List[Register]) -> List[Register]:
+def _filter_unchanged(old: list[Register], new: list[Register]) -> list[Register]:
     old_by_register_name = {x.name: x for x in old}
     return [x for x in new if x != old_by_register_name[x.name]]
