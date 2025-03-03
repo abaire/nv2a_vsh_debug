@@ -162,28 +162,35 @@ def _main(args):
         _emit_input_template()
         return 0
 
-    if args.inputs and not os.path.isfile(args.inputs):
-        print(f"Failed to open input definition file '{args.inputs}'", file=sys.stderr)
+    inputs = os.path.abspath(os.path.expanduser(args.inputs)) if args.inputs else None
+    if inputs and not os.path.isfile(inputs):
+        print(f"Failed to open input definition file '{inputs}'", file=sys.stderr)
         return 1
-    if args.renderdoc_mesh and not os.path.isfile(args.renderdoc_mesh):
+
+    renderdoc_mesh = os.path.abspath(os.path.expanduser(args.renderdoc_mesh)) if args.renderdoc_mesh else None
+    if renderdoc_mesh and not os.path.isfile(renderdoc_mesh):
         print(
             f"Failed to open RenderDoc input definition file '{args.renderdoc_mesh}'",
             file=sys.stderr,
         )
         return 1
 
-    if args.renderdoc_constants and not os.path.isfile(args.renderdoc_constants):
+    renderdoc_constants = (
+        os.path.abspath(os.path.expanduser(args.renderdoc_constants)) if args.renderdoc_constants else None
+    )
+    if renderdoc_constants and not os.path.isfile(renderdoc_constants):
         print(
             f"Failed to open RenderDoc constant definition file '{args.renderdoc_constants}'",
             file=sys.stderr,
         )
         return 1
 
-    if args.source and not os.path.isfile(args.source):
+    source = os.path.abspath(os.path.expanduser(args.source)) if args.source else None
+    if source and not os.path.isfile(source):
         print(f"Failed to open source file '{args.source}'", file=sys.stderr)
         return 1
 
-    program = _ShaderProgram(args.source, args.inputs, args.renderdoc_mesh, args.renderdoc_constants)
+    program = _ShaderProgram(source, inputs, renderdoc_mesh, renderdoc_constants)
 
     if args.json:
         json.dump(program.shader_trace.to_dict(), sys.stdout, indent=2, sort_keys=True)
