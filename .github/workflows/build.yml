@@ -79,7 +79,7 @@ jobs:
 
 
   upload_pypi:
-    needs: [ build ]
+    needs: [ build, select-python-version-for-publishing ]
     name: Upload Python distribution to PyPI
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
@@ -87,12 +87,32 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: source
+          name: source-ubuntu-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
           path: dist
 
       - uses: actions/download-artifact@v4
         with:
-          name: wheels
+          name: source-macos-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-windows-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-ubuntu-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-macos-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-windows-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
           path: dist
 
       - uses: pypa/gh-action-pypi-publish@release/v1
