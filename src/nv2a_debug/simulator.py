@@ -5,7 +5,7 @@ from __future__ import annotations
 import collections
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, NamedTuple, Self
 
 import nv2a_vsh
 
@@ -238,17 +238,27 @@ class Context:
         return self._outputs
 
 
+class SimulatedStep(NamedTuple):
+    """Contains information about a single execution step."""
+
+    source_code: str
+    input_context: Context
+    result_context: Context
+    instruction: Nv2aVshStep
+
+
 class Step:
     """Models a single step in a Shader Trace."""
 
-    def __init__(self, index: int, source: str, state: Context, instruction: Nv2aVshStep):
+    def __init__(self, index: int, simulated_step: SimulatedStep):
         self._index = index
-        self._source = source
-        self._state = state
-        self._instruction = instruction
+        self._source = simulated_step.source_code
+        self._input_state = simulated_step.input_context
+        self._state = simulated_step.result_context
+        self._instruction = simulated_step.instruction
 
-        self._inputs: dict[str, list[RegisterReference]] = _extract_inputs(instruction)
-        self._outputs: dict[str, list[RegisterReference]] = _extract_outputs(instruction)
+        self._inputs: dict[str, list[RegisterReference]] = _extract_inputs(simulated_step.instruction)
+        self._outputs: dict[str, list[RegisterReference]] = _extract_outputs(simulated_step.instruction)
 
         self._ancestors: dict[str, tuple[list[Ancestor], set[RegisterReference]]] | None = None
 
@@ -275,6 +285,10 @@ class Step:
     @property
     def state(self) -> Context:
         return self._state
+
+    @property
+    def input_state(self) -> Context:
+        return self._input_state
 
     @property
     def ancestors(
@@ -413,21 +427,26 @@ class Shader:
         output.apply(instruction)
         return output
 
-    def _simulate(self) -> tuple[list[tuple[str, Context, Nv2aVshStep]], Context]:
-        active_state = self._input_context
-        states = []
-        for line, instruction in zip(self._reformatted_source, self._instructions, strict=False):
-            active_state = self._apply(instruction, active_state)
-            states.append((line, active_state, instruction))
+    def _simulate(self) -> tuple[list[SimulatedStep], Context]:
+        """Simulates each instruction in the program.
 
-        return states, active_state
+        :return A tuple consisting of a list of SimulatedStep instances for each step and the terminal output Context.
+        """
+        active_context = self._input_context
+        states = []
+        for source_code, instruction in zip(self._reformatted_source, self._instructions, strict=False):
+            new_context = self._apply(instruction, active_context)
+            states.append(SimulatedStep(source_code, active_context, new_context, instruction))
+            active_context = new_context
+
+        return states, active_context
 
     def explain(self, *, process_ancestors: bool = True) -> Trace:
         """Returns a Trace providing details about the execution state of this shader."""
         steps, output = self._simulate()
         step_objects: list[Step] = []
-        for idx, (source, step_output, instruction) in enumerate(steps):
-            new_step = Step(idx, source, step_output, instruction)
+        for idx, simulated_step in enumerate(steps):
+            new_step = Step(idx, simulated_step)
             if process_ancestors:
                 ancestors = _find_ancestors(new_step, step_objects)
                 new_step._set_ancestors(ancestors)  # noqa: SLF001 Private member accessed

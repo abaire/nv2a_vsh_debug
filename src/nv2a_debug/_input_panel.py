@@ -120,7 +120,7 @@ class _InputPanel(Static):
             msg = "_build_renderables called without self._step"
             raise ValueError(msg)
 
-        state = self._step.state
+        state = self._step.input_state
         x, y, z, w = state.get(f"{register.canonical_name}")
         ret.append(Text(f" {x}", get_value_style("x")))
         ret.append(Text(f" {y}", get_value_style("y")))
