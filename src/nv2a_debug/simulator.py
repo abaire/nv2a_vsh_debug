@@ -5,10 +5,9 @@ from __future__ import annotations
 import collections
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 import nv2a_vsh
-from typing_extensions import Self
 
 from nv2a_debug._types import Register
 from nv2a_debug.py_nv2a_vsh_emu import Nv2aVshEmuState, Nv2aVshStep
@@ -417,7 +416,7 @@ class Shader:
     def _simulate(self) -> tuple[list[tuple[str, Context, Nv2aVshStep]], Context]:
         active_state = self._input_context
         states = []
-        for line, instruction in zip(self._reformatted_source, self._instructions):
+        for line, instruction in zip(self._reformatted_source, self._instructions, strict=False):
             active_state = self._apply(instruction, active_state)
             states.append((line, active_state, instruction))
 

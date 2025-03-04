@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import os.path
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, cast
 
 from textual import on
 from textual.containers import Center, Horizontal
@@ -14,6 +14,8 @@ from textual.validation import ValidationResult, Validator
 from textual.widgets import Button, Input, Label
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from textual.app import ComposeResult
 
 
