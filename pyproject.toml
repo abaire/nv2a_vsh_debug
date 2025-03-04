@@ -1,5 +1,7 @@
 [build-system]
-requires = ["hatchling>=1.11.1"]
+requires = [
+    "hatchling>=1.11.1",
+]
 build-backend = "hatchling.build"
 
 [project]
@@ -88,6 +90,11 @@ exclude = [
 packages = ["src/nv2a_debug"]
 exclude = [
     "README-maintainer.md"
+]
+artifacts = [
+    "*.so",
+    "*.dll",
+    "*.dylib",
 ]
 
 [tool.hatch.build.targets.wheel.hooks.custom]

@@ -30,7 +30,11 @@ class GenerateBindingsBuildHook(BuildHookInterface):
 
     def initialize(self, version, build_data):
         del version
-        del build_data
+        build_data["pure_python"] = False
+
+        # infer_tag will create a linux_<arch> which is rejected by PyPi. It can be fixed using the repairwheel tool.
+        build_data["infer_tag"] = True
+
         shutil.rmtree(self.build_dir, ignore_errors=True)
         shutil.rmtree(self.install_dir, ignore_errors=True)
         self._build_nv2a_vsh_cpu()
