@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from rich.panel import Panel
 from rich.table import Table
@@ -12,6 +12,8 @@ from rich.text import Text
 from textual.widgets import Static
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from rich.console import RenderableType
 
     from nv2a_debug.simulator import Register
