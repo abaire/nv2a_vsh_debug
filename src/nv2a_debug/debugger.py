@@ -29,6 +29,13 @@ from nv2a_debug._shader_program import _ShaderProgram
 
 
 class _AppScreen(Screen):
+    BINDINGS = [
+        ("f1", "open_file", "Open file"),
+        ("f5", "reload_files", "Reload files"),
+        ("f10", "app.toggle_dark", "Toggle dark mode"),
+        ("escape,q", "app.quit", "Quit"),
+    ]
+
     def __init__(self, program: _ShaderProgram):
         super().__init__()
         self._program = program
@@ -92,6 +99,10 @@ class _AppScreen(Screen):
             )
         )
 
+    def action_reload_files(self) -> None:
+        self._program.reload()
+        self._load_program()
+
     def _load_program(self):
         if not self._program.loaded:
             self.sub_title = ""
@@ -123,11 +134,6 @@ class _App(App):
     """Main application."""
 
     TITLE = "nv2a Debugger"
-    BINDINGS = [
-        ("f1", "open_file", "File menu"),
-        ("f10", "app.toggle_dark", "Toggle dark mode"),
-        ("escape,q", "app.quit", "Quit"),
-    ]
 
     CSS = """
     /* Workaround for Textualize#2408 */
