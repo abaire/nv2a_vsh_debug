@@ -43,10 +43,10 @@ class _ShaderProgram:
         self._vertex_inputs: list[dict] = []
         self._active_vertex: dict = {}
 
+        self.source_file = source_file
         self.inputs_file = inputs_json_file if inputs_json_file else ""
         self.mesh_inputs_file = renderdoc_mesh_csv if renderdoc_mesh_csv else ""
         self.constants_file = renderdoc_constants_csv if renderdoc_constants_csv else ""
-        self.source_file = source_file
 
         self._shader: simulator.Shader
         self._shader_trace: Trace
@@ -132,6 +132,13 @@ class _ShaderProgram:
                 self._constants = list(csv.DictReader(csvfile))
         else:
             self._constants = []
+
+    def reload(self):
+        self.source_file = self.source_file
+        self.inputs_file = self.inputs_file
+        self.mesh_inputs_file = self.mesh_inputs_file
+        self.constants_file = self.constants_file
+        self.build_shader()
 
     def set_active_vertex_index(self, index: int) -> bool:
         """Selects a new vertex to use as inputs. Returns True if the shader was rebuilt as a result."""
