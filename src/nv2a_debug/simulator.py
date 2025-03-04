@@ -135,7 +135,9 @@ class RegisterReference:
         if other.canonical_name != self.canonical_name or other == self:
             return replace(self)
 
-        merged_mask = "".join(sorted(set(self.mask) | set(other.mask)))
+        common_mask = set(self.mask)
+        common_mask.update(set(other.mask))
+        merged_mask = "".join([component for component in "xyzw" if component in common_mask])
         return replace(
             self,
             negate=None,
