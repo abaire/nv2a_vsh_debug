@@ -5,7 +5,7 @@ from rich.style import Style
 
 from nv2a_debug._code_panel import _build_ancestor_root_segments
 from nv2a_debug.py_nv2a_vsh_emu import Nv2aVshStep
-from nv2a_debug.simulator import Ancestor, Context, Step
+from nv2a_debug.simulator import Ancestor, Context, SimulatedStep, Step
 
 _SOURCE_STYLE = Style(color="red")
 _CONTRIB_STYLE = Style(color="blue")
@@ -223,5 +223,10 @@ def info_dict(mnemonic: str, outputs: list[str], inputs: list[str]) -> dict:
 
 
 def ancestor(components: list[tuple[str, str]]) -> Ancestor:
-    mock_step = Step(0, source="TEST", state=Context(), instruction=Nv2aVshStep([]))
+    mock_step = Step(
+        0,
+        SimulatedStep(
+            source_code="TEST", input_context=Context(), result_context=Context(), instruction=Nv2aVshStep([])
+        ),
+    )
     return Ancestor(step=mock_step, mac_or_ilu="TEST", components=frozenset(components))
