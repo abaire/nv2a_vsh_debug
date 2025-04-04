@@ -548,7 +548,12 @@ def _extract_register_references(ins: Nv2aVshStep, key: str) -> dict[str, list[R
             return
 
         for element in mapping[key]:
-            ret[mac_or_ilu].append(RegisterReference.from_source(element))
+            register = RegisterReference.from_source(element)
+            ret[mac_or_ilu].append(register)
+
+            # Add a reference to A0 for any elements that use indirect references.
+            if register.canonical_name.startswith("cA0"):
+                ret[mac_or_ilu].append(RegisterReference.from_source("A0"))
 
     process_instruction("mac")
     process_instruction("ilu")

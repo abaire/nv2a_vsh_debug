@@ -263,7 +263,21 @@ class Nv2aVshEmuState:
         """Returns the current value of the given register."""
 
         def _get(destination, reg_name) -> tuple[float, float, float, float]:
-            index = int(reg_name[1:]) * 4
+            # Handle A0 register use.
+            if reg_name[1:3] == "A0":
+                address_register = int(self._state.address_reg[0])
+                operation = reg_name[3]
+                offset = int(reg_name[4:])
+                if operation == "+":
+                    index = address_register + offset
+                elif operation == "-":
+                    index = address_register - offset
+                else:
+                    msg = f"Unexpected A0 offset in '{reg_name}'"
+                    raise NotImplementedError(msg)
+                index *= 4
+            else:
+                index = int(reg_name[1:]) * 4
             return tuple(destination[index : index + 4])
 
         if name == "oPos":
