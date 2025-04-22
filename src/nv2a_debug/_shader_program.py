@@ -105,6 +105,9 @@ class _ShaderProgram:
                     if not row:
                         break
                     row = {key.strip(): val.strip() for key, val in row.items()}  # noqa: PLW2901 `for` loop variable overwritten
+                    if "gl_PointSize" in row:
+                        msg = f"Renderdoc mesh file '{val}' contains output vertices instead of input vertices. Make sure you select an input vertex in RenderDoc before exporting to CSV."
+                        raise ValueError(msg)
                     self._vertex_inputs.append(row)
             if self._vertex_inputs:
                 self._active_vertex = self._vertex_inputs[0]

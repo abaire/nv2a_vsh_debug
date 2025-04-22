@@ -246,20 +246,22 @@ def entrypoint():
         )
 
         parser.add_argument(
-            "-i",
             "--inputs",
+            "-i",
             metavar="json_inputs",
             help="Use the JSON content of the given file as the shader input state.",
         )
 
         parser.add_argument(
             "--renderdoc-mesh",
+            "-M",
             metavar="renderdoc_csv_export",
             help="Use the v* registers in the given RenderDoc CSV file as the shader input state.",
         )
 
         parser.add_argument(
             "--renderdoc-constants",
+            "-C",
             metavar="renderdoc_csv_export",
             help="Use the c* values in the given RenderDoc CSV file as the shader input state.",
         )
@@ -285,8 +287,8 @@ def entrypoint():
         )
 
         parser.add_argument(
-            "-s",
             "--simulate",
+            "-s",
             action="store_true",
             help="Emit a JSON document capturing the end results for each vertex in the mesh. Requires <source>.",
         )
