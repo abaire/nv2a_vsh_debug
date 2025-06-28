@@ -14,6 +14,7 @@ from nv2a_debug.simulator import Register
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nv2a_debug._types import RawRegister
     from nv2a_debug.simulator import Trace
 
 
@@ -186,24 +187,24 @@ class _ShaderProgram:
 
 
 def _merge_inputs(row: dict, shader: simulator.Shader):
-    inputs = []
+    inputs: list[RawRegister] = []
     for index in range(16):
         key_base = f"v{index}"
         keys = [f"{key_base}.{component}" for component in "xyzw"]
 
         valid = False
-        register = [key_base]
+        register: list[str | float] = [key_base]
         for value in [row.get(key) for key in keys]:
             if value is not None:
                 valid = True
-                value = float(value)  # noqa: PLW2901 `for` loop variable overwritten
             else:
                 value = 0.0  # noqa: PLW2901 `for` loop variable overwritten
             register.append(value)
         if not valid:
             continue
 
-        inputs.append(register)
+        raw_reg = str(register[0]), float(register[1]), float(register[2]), float(register[3]), float(register[4])
+        inputs.append(raw_reg)
 
     shader.merge_initial_state({"input": inputs})
 

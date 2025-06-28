@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+RawRegister = tuple[str, float, float, float, float]
+
 
 @dataclass(unsafe_hash=True)
 class Register:

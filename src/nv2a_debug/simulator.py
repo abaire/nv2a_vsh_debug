@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, NamedTuple, Self
 
 import nv2a_vsh
 
-from nv2a_debug._types import Register
+from nv2a_debug._types import RawRegister, Register
 from nv2a_debug.py_nv2a_vsh_emu import Nv2aVshEmuState, Nv2aVshStep
 
 if TYPE_CHECKING:
@@ -149,17 +149,17 @@ class RegisterReference:
 class Context:
     """Holds the current register context."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._state = Nv2aVshEmuState()
 
-        self._inputs = []
-        self._constants = []
-        self._address = None
-        self._temps = []
-        self._outputs = []
+        self._inputs: list[Register] = []
+        self._constants: list[Register] = []
+        self._address: Register | None = None
+        self._temps: list[Register] = []
+        self._outputs: list[Register] = []
         self._update()
 
-    def from_dict(self, registers: dict):
+    def from_dict(self, registers: dict[str, list[RawRegister]]):
         """Populates this context from the given dictionary of register states."""
 
         inputs = registers.get("input", [])
@@ -171,7 +171,7 @@ class Context:
         self._state.set_state(inputs, constants, temps, outputs, address)
         self._update()
 
-    def to_dict(self, *, inputs_only: bool = False):
+    def to_dict(self, *, inputs_only: bool = False) -> dict[str, list[RawRegister]]:
         """Returns a dictionary representation of this context."""
         return self._state.to_dict(inputs_only=inputs_only)
 
@@ -207,7 +207,7 @@ class Context:
         self._update()
 
     def _update(self):
-        def convert_register_list(lst: list) -> list[Register]:
+        def convert_register_list(lst: list[tuple[str, float, float, float, float]]) -> list[Register]:
             return [Register(*x) for x in lst]
 
         vals = self.to_dict()
@@ -227,6 +227,8 @@ class Context:
 
     @property
     def address(self) -> Register:
+        if self._address is None:
+            return Register("A0", 0.0, 0.0, 0.0, 0.0)
         return self._address
 
     @property

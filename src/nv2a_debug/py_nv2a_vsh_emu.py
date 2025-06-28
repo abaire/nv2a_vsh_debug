@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from nv2a_debug._types import Register
+from nv2a_debug._types import RawRegister, Register
 from nv2a_debug.lib._nv2a_vsh_cpu import ffi, lib
-
-if TYPE_CHECKING:
-    from collections.abc import Collection
 
 _OPCODES = [
     "NOP",
@@ -201,8 +196,15 @@ class Nv2aVshEmuState:
         self._state = ffi.new("Nv2aVshCPUFullExecutionState*")
         self._token = lib.nv2a_vsh_emu_initialize_full_execution_state(self._state)
 
-    def set_state(self, input_registers: list, context: list, temp: list, output: list, address: list):
-        def _set(destination, register: Collection | Register):
+    def set_state(
+        self,
+        input_registers: list[RawRegister],
+        context: list[RawRegister],
+        temp: list[RawRegister],
+        output: list[RawRegister],
+        address: list[RawRegister],
+    ):
+        def _set(destination, register: RawRegister | Register):
             if isinstance(register, Register):
                 name = register.name
                 x = register.x
@@ -210,7 +212,11 @@ class Nv2aVshEmuState:
                 z = register.z
                 w = register.w
             else:
-                name, x, y, z, w = register
+                name = str(register[0])
+                x = float(register[1])
+                y = float(register[2])
+                z = float(register[3])
+                w = float(register[4])
             index = int(name[1:]) * 4
             destination[index] = x
             destination[index + 1] = y
@@ -232,7 +238,7 @@ class Nv2aVshEmuState:
             self._state.address_reg[2] = address[2]
             self._state.address_reg[3] = address[3]
 
-    def to_dict(self, *, inputs_only: bool):
+    def to_dict(self, *, inputs_only: bool) -> dict[str, list[RawRegister]]:
         """Returns a dictionary representation of this state."""
 
         def retrieve_regs(prefix: str, source, count: int) -> list:
