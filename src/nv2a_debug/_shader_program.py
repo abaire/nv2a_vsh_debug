@@ -8,11 +8,13 @@ import re
 from typing import TYPE_CHECKING
 
 from nv2a_debug import simulator
+from nv2a_debug._input_sanitizer import sanitize_vsh_source
 from nv2a_debug.simulator import Register
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nv2a_debug._types import RawRegister
     from nv2a_debug.simulator import Trace
 
 
@@ -43,6 +45,8 @@ class _ShaderProgram:
         self._vertex_inputs: list[dict] = []
         self._active_vertex: dict = {}
 
+        self._source_code: str
+        self._source_code_sanitized: bool = False
         self.source_file = source_file
         self.inputs_file = inputs_json_file if inputs_json_file else ""
         self.mesh_inputs_file = renderdoc_mesh_csv if renderdoc_mesh_csv else ""
@@ -73,7 +77,7 @@ class _ShaderProgram:
         self._source_file = val
         if val:
             with open(val, encoding="utf-8") as infile:
-                self._source_code = infile.read()
+                self._source_code = sanitize_vsh_source(infile.read())
         else:
             self._source_code = ""
 
@@ -166,6 +170,13 @@ class _ShaderProgram:
             _merge_constants(self._constants, self._shader)
 
         errors = self._shader.set_source(self._source_code)
+        if errors and not self._source_code_sanitized:
+            self._source_code_sanitized = True
+            sanitized = sanitize_vsh_source(self._source_code)
+            if sanitized != self._source_code:
+                self._source_code = sanitized
+                errors = self._shader.set_source(self._source_code)
+
         if errors:
             error_messsage = [f"Assembly failed due to errors in {self._source_code}:"]
             error_messsage.extend(errors)
@@ -176,24 +187,24 @@ class _ShaderProgram:
 
 
 def _merge_inputs(row: dict, shader: simulator.Shader):
-    inputs = []
+    inputs: list[RawRegister] = []
     for index in range(16):
         key_base = f"v{index}"
         keys = [f"{key_base}.{component}" for component in "xyzw"]
 
         valid = False
-        register = [key_base]
+        register: list[str | float] = [key_base]
         for value in [row.get(key) for key in keys]:
             if value is not None:
                 valid = True
-                value = float(value)  # noqa: PLW2901 `for` loop variable overwritten
             else:
                 value = 0.0  # noqa: PLW2901 `for` loop variable overwritten
             register.append(value)
         if not valid:
             continue
 
-        inputs.append(register)
+        raw_reg = str(register[0]), float(register[1]), float(register[2]), float(register[3]), float(register[4])
+        inputs.append(raw_reg)
 
     shader.merge_initial_state({"input": inputs})
 

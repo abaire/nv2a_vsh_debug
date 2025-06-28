@@ -15,10 +15,14 @@ from textual.widgets import ContentSwitcher, DataTable, Static
 if TYPE_CHECKING:
     from rich.console import RenderableType
     from textual.app import ComposeResult
+    from textual.widgets._data_table import RowKey
 
     from nv2a_debug._shader_program import _ShaderProgram
 
 from nv2a_debug._error_message import _CenteredErrorMessage
+
+# SELECTED_STYLE = Style(foreground=Color.white, background="blue")
+# UNSELECTED_STYLE = Style() # An empty style will revert to the default
 
 
 class _ProgramVertexViewer(Static):
@@ -37,6 +41,10 @@ class _ProgramVertexViewer(Static):
     _ProgramVertexViewer DataTable > .datatable--hover {
         background: $background;
     }
+
+    _ProgramVertexViewer DataTable > .datatable--selected {
+        background: $success;
+    }
     """
 
     BINDINGS = [
@@ -50,7 +58,7 @@ class _ProgramVertexViewer(Static):
         self._program: _ShaderProgram | None = None
 
         self._vertex_table: DataTable = DataTable(id="content")
-        self._vertex_table.add_columns(
+        self._column_keys = self._vertex_table.add_columns(
             "Index",
             "v0",
             "v1",
@@ -73,6 +81,7 @@ class _ProgramVertexViewer(Static):
         self._vertex_table.zebra_stripes = True
 
         self._row_index_to_vertex_id: dict[int, int] = {}
+        self._selected_vertex_key: RowKey | None = None
 
     def set_program(self, program: _ShaderProgram | None):
         self._program = program
@@ -100,7 +109,22 @@ class _ProgramVertexViewer(Static):
             raise ValueError(msg)
 
         vertex_index = self._row_index_to_vertex_id[event.cursor_row]
+        vertex_key = event.row_key
         if self._program.set_active_vertex_index(vertex_index):
+            if self._selected_vertex_key != vertex_key:
+                if self._selected_vertex_key is not None:
+                    current_index = self._vertex_table.get_row(self._selected_vertex_key)[0]
+                    self._vertex_table.update_cell(
+                        self._selected_vertex_key, self._column_keys[0], current_index[1:-1], update_width=True
+                    )
+
+                current_index = self._vertex_table.get_row(vertex_key)[0]
+                self._vertex_table.update_cell(
+                    vertex_key, self._column_keys[0], f"[{current_index}]", update_width=True
+                )
+
+            self._selected_vertex_key = vertex_key
+
             self.post_message(self.ActiveVertexChanged(vertex_index))
 
     def _populate(self):
@@ -115,10 +139,14 @@ class _ProgramVertexViewer(Static):
 
             for row, vertex in enumerate(ordered_vertices):
                 self._row_index_to_vertex_id[row] = int(vertex["VTX"])
-                self._vertex_table.add_row(
-                    vertex["IDX"],
+                index = vertex["IDX"]
+                row_key = self._vertex_table.add_row(
+                    index if row else f"[{index}]",
                     *[_render_vertex(vertex, f"v{idx}") for idx in range(16)],
+                    key=index,
                 )
+                if row == 0:
+                    self._selected_vertex_key = row_key
 
             self._active_content = "content"
 

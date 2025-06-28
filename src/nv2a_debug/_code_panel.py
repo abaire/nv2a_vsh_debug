@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
 from nv2a_debug.simulator import Ancestor, RegisterReference, Step, Trace, canonicalize_register_name
 
+_SCROLL_BAR_WIDTH = 2
+
 
 class TraceView:
     """Provides a filtered view of a Trace by following the ancestry of a Step."""
@@ -212,7 +214,10 @@ class _CodePanel(ScrollView, can_focus=True):
 
         # TODO: properly measure max size. Some ancestor tracing interactions can grow the step length by adding masks.
         # Maximum visible length is the widget boundaries - 2 to account for the scroll bar.
-        max_line_length = self.size.width - 2
+        max_line_length = self.size.width
+        if max_line_length >= _SCROLL_BAR_WIDTH:
+            max_line_length -= _SCROLL_BAR_WIDTH
+
         self.virtual_size = Size(max_line_length, len(self._trace_view.filtered_steps))
         self.post_message(self.ActiveLineChanged(self.cursor_pos, self._trace_view.filtered_steps[0]))
 
@@ -432,8 +437,8 @@ class _CodePanel(ScrollView, can_focus=True):
         # Hack for contextual actions.
         if self.show_ancestors:
             self._bindings.bind("a", "toggle_ancestors", "Show ancestors")
-            del self._bindings.keys["f"]
-            del self._bindings.keys["space"]
+            del self._bindings.key_to_bindings["f"]
+            del self._bindings.key_to_bindings["space"]
             self._ancestor_locked = False
         else:
             self._bindings.bind("a", "toggle_ancestors", "Hide ancestors")

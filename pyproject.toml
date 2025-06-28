@@ -27,7 +27,7 @@ classifiers = [
 ]
 dependencies = [
     "nv2a-vsh~=0.1.2",
-    "textual~=1.0.0",
+    "textual~=3.5.0",
     "cffi~=1.17.1",
 ]
 

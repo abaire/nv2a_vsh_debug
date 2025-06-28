@@ -50,8 +50,16 @@ class _RegisterSetPanel(Static):
         registers: list[Register],
         name_modifier: Callable[[str], str] | None = None,
     ):
-        self._registers = registers
-        self._name_modifier = name_modifier
+        dirty = False
+        if self._registers != registers:
+            self._registers = registers
+            dirty = True
+        if self._name_modifier != name_modifier:
+            self._name_modifier = name_modifier
+            dirty = True
+
+        if dirty:
+            self.update()
 
     def render(self) -> RenderableType:
         if not self._registers:
