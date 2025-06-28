@@ -437,8 +437,8 @@ class _CodePanel(ScrollView, can_focus=True):
         # Hack for contextual actions.
         if self.show_ancestors:
             self._bindings.bind("a", "toggle_ancestors", "Show ancestors")
-            del self._bindings.keys["f"]
-            del self._bindings.keys["space"]
+            del self._bindings.key_to_bindings["f"]
+            del self._bindings.key_to_bindings["space"]
             self._ancestor_locked = False
         else:
             self._bindings.bind("a", "toggle_ancestors", "Hide ancestors")
