@@ -98,32 +98,32 @@ jobs:
     if: github.event_name == 'release'
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: source-ubuntu-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
           path: dist
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: source-macos-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
           path: dist
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: source-windows-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
           path: dist
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: wheel-ubuntu-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
           path: dist
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: wheel-macos-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
           path: dist
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: wheel-windows-latest-${{ needs.select-python-version-for-publishing.outputs.python-version }}
           path: dist
