@@ -194,11 +194,11 @@ def _merge_inputs(row: dict, shader: simulator.Shader):
 
         valid = False
         register: list[str | float] = [key_base]
-        for value in [row.get(key) for key in keys]:
+        for value, key in [(row.get(key), key) for key in keys]:
             if value is not None:
                 valid = True
             else:
-                value = 0.0  # noqa: PLW2901 `for` loop variable overwritten
+                value = 1.0 if key.endswith(".w") else 0.0  # noqa: PLW2901 `for` loop variable overwritten
             register.append(value)
         if not valid:
             continue

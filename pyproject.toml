@@ -1,6 +1,8 @@
 [build-system]
 requires = [
     "hatchling>=1.11.1",
+    "cffi~=1.17.1",
+    "setuptools",  # Required for CFFI on Python 3.12+
 ]
 build-backend = "hatchling.build"
 
