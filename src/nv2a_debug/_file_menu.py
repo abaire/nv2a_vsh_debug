@@ -118,10 +118,10 @@ class _FileMenu(ModalScreen):
     def _on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "apply":
             self._on_accept(
-                cast(Input, self.get_widget_by_id("source")).value,
-                cast(Input, self.get_widget_by_id("inputs")).value,
-                cast(Input, self.get_widget_by_id("mesh")).value,
-                cast(Input, self.get_widget_by_id("constants")).value,
+                cast("Input", self.get_widget_by_id("source")).value,
+                cast("Input", self.get_widget_by_id("inputs")).value,
+                cast("Input", self.get_widget_by_id("mesh")).value,
+                cast("Input", self.get_widget_by_id("constants")).value,
             )
         elif event.button.id == "cancel":
             self._on_cancel()

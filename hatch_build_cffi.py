@@ -1,7 +1,7 @@
 """Custom build hook to generate parser using Antlr."""
 
 # ruff: noqa: S607 Starting a process with a partial executable path
-# ruff: noqa: TRY002 Create your own exception
+
 # ruff: noqa: PLR2004 Magic value used in comparison
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ class GenerateBindingsBuildHook(BuildHookInterface):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.root_dir = Path(".").resolve()
+        self.root_dir = Path.cwd()
         self.nv2a_vsh_cpu_src_dir = self.root_dir / "thirdparty" / "nv2a_vsh_cpu"
         self.build_dir = self.root_dir / "build" / "ffi"
         self.cffi_output_dir = self.build_dir / "cffi-output"
