@@ -78,14 +78,14 @@ jobs:
           repairwheel -o repaired_wheels dist/*.whl
 
       - name: Upload sdist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: matrix.python-version == needs.select-python-version-for-publishing.outputs.python-version
         with:
           name: source-${{ matrix.platform }}-${{ matrix.python-version }}
           path: dist/*.tar.gz
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: matrix.python-version == needs.select-python-version-for-publishing.outputs.python-version
         with:
           name: wheel-${{ matrix.platform }}-${{ matrix.python-version }}
