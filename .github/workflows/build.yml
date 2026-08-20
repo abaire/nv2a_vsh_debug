@@ -51,7 +51,7 @@ jobs:
         run: pip install repairwheel --break-system-packages
 
       - name: Install Hatch
-        uses: pypa/hatch@257e27e51a6a5616ed08a39a408a21c35c9931bc
+        uses: pypa/hatch@f647ed70d49adb885f53a27d1c7f5bdaeacf2c60
 
       - name: Hatch fmt and type check
         run: |
