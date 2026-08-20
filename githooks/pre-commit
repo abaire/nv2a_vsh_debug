@@ -24,7 +24,8 @@ function reformat {
   local files_to_format="$(echo "${changed_python_filenames}" | grep -v '3rdparty')"
   if [[ -n "${files_to_format}" ]]; then
     set -e
-    hatch fmt
+    hatch check code --fix
+    hatch check fmt --fix
     hatch run types:check
     set +e
 

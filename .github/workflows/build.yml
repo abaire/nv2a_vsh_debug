@@ -48,14 +48,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install repairwheel --break-system-packages
+        run: pip install repairwheel hatch==1.17.0 --break-system-packages
 
-      - name: Install Hatch
-        uses: pypa/hatch@f647ed70d49adb885f53a27d1c7f5bdaeacf2c60
-
-      - name: Hatch fmt and type check
+      - name: Hatch lint, fmt, and type check
         run: |
-          hatch fmt --check
+          hatch check code
+          hatch check fmt
           hatch run types:check
 
       - name: Build sdist and wheel

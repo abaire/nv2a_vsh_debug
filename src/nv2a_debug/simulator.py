@@ -469,7 +469,7 @@ def _find_ancestors(
     """
 
     inputs = deepcopy(new_step.inputs)
-    reversed_previous_steps: reversed[Step] = reversed(previous_steps)
+    reversed_previous_steps = reversed(previous_steps)
 
     def find_dependent_components(
         input_register: RegisterReference, outputs: list[RegisterReference]

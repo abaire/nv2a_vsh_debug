@@ -44,11 +44,27 @@ nv2adbg = "nv2a_debug:run"
 [tool.hatch.version]
 path = "src/nv2a_debug/__about__.py"
 
+[tool.hatch.envs.hatch-check-code]
+dependencies = [
+    "ruff==0.16.3",
+]
+
+[tool.hatch.envs.hatch-check-fmt]
+dependencies = [
+    "ruff==0.16.3",
+]
+
+[tool.hatch.envs.hatch-static-analysis]
+dependencies = [
+    "ruff==0.16.3",
+]
+
 [tool.hatch.envs.types]
 type = "virtual"
 path = ".venv-mypy"
 extra-dependencies = [
-    "mypy>=1.14.1",
+    "mypy==2.3.1",
+    "types-Pygments",
 ]
 [tool.hatch.envs.types.scripts]
 check = "mypy --install-types --non-interactive {args:src/nv2a_debug tests}"
